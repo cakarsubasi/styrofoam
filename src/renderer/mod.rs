@@ -54,6 +54,7 @@ pub mod vkhandles {
         surface: vk::SurfaceKHR,
         //surface_format: vk::SurfaceFormatKHR,
         //surface_resolution: vk::Extent2D,
+        surface_loader: khr::surface::Instance,
     }
 
     impl Drop for Surface {
@@ -67,14 +68,88 @@ pub mod vkhandles {
     }
 
     pub struct Swapchain {
-        instance: Arc<Instance>,
+        instance: Arc<Device>,
+        surface: Arc<Surface>,
         swapchain: vk::SwapchainKHR,
+        swapchain_loader: khr::swapchain::Device,
+    }
+
+    impl Swapchain {
+        pub unsafe fn new(
+            device: Arc<Device>,
+            surface: Arc<Surface>,
+        ) -> Result<Swapchain, vk::Result> {
+            Self::create_swapchain(device, surface, vk::SwapchainKHR::null())
+        }
+
+        unsafe fn create_swapchain(
+            device: Arc<Device>,
+            surface: Arc<Surface>,
+            swapchain: vk::SwapchainKHR,
+        ) -> Result<Swapchain, vk::Result> {
+            const SWAPCHAIN_SIZE: u32 = 3;
+
+            let swapchain_loader =
+                khr::swapchain::Device::new(&device.instance.instance, &device.device);
+
+            let surface_loader = &surface.surface_loader;
+
+            let surface_caps = surface_loader.get_physical_device_surface_capabilities(
+                device.physical_device,
+                surface.surface,
+            )?;
+
+            let surface_formats = surface_loader
+                .get_physical_device_surface_formats(device.physical_device, surface.surface)?;
+
+            // TODO: should probably fetch an RGB format instead of BGR
+            let surface_format = surface_formats[0];
+
+            let present_modes = surface_loader.get_physical_device_surface_present_modes(
+                device.physical_device,
+                surface.surface,
+            )?;
+
+            let present_mode = if present_modes.contains(&vk::PresentModeKHR::MAILBOX) {
+                vk::PresentModeKHR::MAILBOX
+            } else {
+                vk::PresentModeKHR::FIFO
+            };
+
+            let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
+                .surface(surface.surface)
+                .image_extent(surface_caps.current_extent)
+                .image_format(surface_format.format)
+                .image_color_space(surface_format.color_space)
+                .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+                .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
+                .pre_transform(surface_caps.current_transform)
+                .composite_alpha(vk::CompositeAlphaFlagsKHR::PRE_MULTIPLIED)
+                .image_array_layers(1)
+                .min_image_count(SWAPCHAIN_SIZE)
+                .present_mode(present_mode)
+                .clipped(true)
+                .old_swapchain(swapchain);
+
+            // TODO: should be able to handle this
+            let swapchain = swapchain_loader
+                .create_swapchain(&swapchain_create_info, None)
+                .expect("Cannot create swapchain");
+
+            Ok(Swapchain {
+                instance: device,
+                surface: surface,
+                swapchain,
+                swapchain_loader,
+            })
+        }
     }
 
     impl Drop for Swapchain {
         fn drop(&mut self) {
             unsafe {
-                //self.instance.instance.
+                self.swapchain_loader
+                    .destroy_swapchain(self.swapchain, None);
             }
         }
     }
@@ -96,13 +171,12 @@ pub mod vkhandles {
         instance: Arc<Instance>,
         physical_device: vk::PhysicalDevice,
         device: ash::Device,
+        queue: vk::Queue,
         allocator: vk_mem::Allocator,
         //swapchain: vk::SwapchainKHR,
     }
 
-    impl Device {
-        unsafe fn foo(&self) {}
-    }
+    impl Device {}
 
     impl Drop for Device {
         fn drop(&mut self) {
@@ -204,7 +278,7 @@ pub mod vkhandles {
         }
 
         pub unsafe fn create_surface(
-            self: &Arc<Self>,
+            self: Arc<Self>,
             raw_display_handle: RawDisplayHandle,
             raw_window_handle: RawWindowHandle,
         ) -> Surface {
@@ -217,13 +291,16 @@ pub mod vkhandles {
             )
             .unwrap();
 
+            let surface_loader = khr::surface::Instance::new(&self.entry, &self.instance);
+
             Surface {
-                instance: Arc::clone(&self),
+                instance: self,
                 surface,
+                surface_loader,
             }
         }
 
-        pub unsafe fn create_physical_device(self: &Arc<Self>, surface: &Surface) -> Device {
+        pub unsafe fn create_physical_device(self: Arc<Self>, surface: &Surface) -> Device {
             let pdevices = self
                 .instance
                 .enumerate_physical_devices()
@@ -277,7 +354,21 @@ pub mod vkhandles {
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
                 ash::khr::portability_subset::NAME.as_ptr(),
             ];
-            //let enabled_features = [];
+
+            let vk10_features =
+                vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true);
+            let mut vk11_features =
+                vk::PhysicalDeviceVulkan11Features::default().shader_draw_parameters(true);
+            let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default();
+            let mut vk13_features =
+                vk::PhysicalDeviceVulkan13Features::default().dynamic_rendering(true);
+            let mut enabled_features = vk::PhysicalDeviceFeatures2 {
+                features: vk10_features,
+                ..Default::default()
+            }
+            .push_next(&mut vk11_features)
+            .push_next(&mut vk12_features)
+            .push_next(&mut vk13_features);
 
             let queue_create_infos = [vk::DeviceQueueCreateInfo::default()
                 .queue_family_index(_queue_family_index)
@@ -286,8 +377,7 @@ pub mod vkhandles {
             let device_create_info = vk::DeviceCreateInfo::default()
                 .enabled_extension_names(&enabled_extension_names)
                 .queue_create_infos(&queue_create_infos)
-            //    .enabled_features(&enabled_features)
-            ;
+                .push_next(&mut enabled_features);
 
             let device = self
                 .instance
@@ -305,11 +395,13 @@ pub mod vkhandles {
                 .queue_index(0);
 
             let queue = device.get_device_queue2(&queue_info);
+            let swapchain_loader = khr::swapchain::Device::new(&self.instance, &device);
 
             Device {
-                instance: Arc::clone(self),
+                instance: self,
                 physical_device: _pdevice,
                 device,
+                queue,
                 allocator,
             }
         }
@@ -331,7 +423,7 @@ pub mod vkhandles {
 }
 
 pub struct Renderer {
-    device: vkhandles::Device,
+    device: Arc<vkhandles::Device>,
 }
 impl Renderer {
     pub unsafe fn new(
@@ -339,8 +431,10 @@ impl Renderer {
         raw_window_handle: RawWindowHandle,
     ) -> Self {
         let instance = Arc::new(vkhandles::Instance::new(raw_display_handle));
-        let surface = &instance.create_surface(raw_display_handle, raw_window_handle);
-        let device = instance.create_physical_device(surface);
-        Self { device }
+        let surface = Arc::clone(&instance).create_surface(raw_display_handle, raw_window_handle);
+        let device = Arc::new(instance.create_physical_device(&surface));
+        let swapchain = vkhandles::Swapchain::new(Arc::clone(&device), Arc::new(surface))
+            .expect("Initial swapchain creation failure");
+        Self { device: device }
     }
 }
