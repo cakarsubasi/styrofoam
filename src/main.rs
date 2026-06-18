@@ -4,7 +4,7 @@ use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
     event_loop::EventLoop,
-    raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle},
+    raw_window_handle::{HasDisplayHandle, HasWindowHandle},
 };
 
 fn main() {
@@ -22,7 +22,7 @@ struct App {
 }
 
 struct AppContext {
-    gui_context: egui::Context,
+    gui_context: egui_winit::State,
     window: winit::window::Window,
 }
 
@@ -45,13 +45,19 @@ impl ApplicationHandler for App {
             let viewport_opts = egui::ViewportBuilder::default();
             let window = create_window(&gui_ctx, &event_loop, &viewport_opts).unwrap();
 
-            let raw_display_handle = event_loop.raw_display_handle().expect("No display handle");
-            let raw_window_handle = window.raw_window_handle().expect("No window handle");
+            let raw_display_handle = event_loop
+                .display_handle()
+                .expect("No display handle")
+                .as_raw();
+            let raw_window_handle = window.window_handle().expect("No window handle").as_raw();
 
             let renderer = unsafe { Renderer::new(raw_display_handle, raw_window_handle) };
+            let viewport_id = gui_ctx.viewport_id();
+            let gui_context =
+                egui_winit::State::new(gui_ctx, viewport_id, &window, None, None, None);
             self.renderer = Some(renderer);
             self.app_context = Some(AppContext {
-                gui_context: gui_ctx,
+                gui_context,
                 window,
             });
         }
@@ -63,12 +69,27 @@ impl ApplicationHandler for App {
         _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        let app_context = self.app_context.as_ref().unwrap();
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                self.app_context.as_ref().unwrap().window.request_redraw();
+                let app_context = self.app_context.as_mut().unwrap();
+                let renderer = self.renderer.as_mut().unwrap();
+
+                let new_input = app_context.gui_context.take_egui_input(&app_context.window);
+
+                let mut ctx = egui::Context::default();
+
+                let full_output = ctx.run_ui(new_input, |ui| {
+                    ui.label("hope this works");
+                });
+
+                // TODO:
+                renderer.request_redraw().unwrap();
+
+                // app_context.window.request_redraw();
             }
             _ => {}
         }
@@ -84,7 +105,6 @@ fn handle_egui(ctx: &mut egui::Context) -> egui::PlatformOutput {
 
     let platform_output = full_output.platform_output;
     let _clipped_primitives = ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
-    let _textures_delta = full_output.textures_delta;
 
     platform_output
 }
