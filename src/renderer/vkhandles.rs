@@ -69,6 +69,10 @@ impl Swapchain {
         let surface_caps = surface_loader
             .get_physical_device_surface_capabilities(device.physical_device, surface.inner)?;
 
+        if surface_caps.current_extent.height == 0 || surface_caps.current_extent.width == 0 {
+            return Err(vk::Result::NOT_READY);
+        }
+
         let surface_formats = surface_loader
             .get_physical_device_surface_formats(device.physical_device, surface.inner)?;
 
@@ -135,6 +139,18 @@ impl Swapchain {
             synchronization,
         })
     }
+
+    fn recreate(&mut self) -> VkResult<()> {
+        unsafe {
+            let new_swapchain = Swapchain::create_swapchain(
+                Arc::clone(&self.device),
+                Arc::clone(&self.surface),
+                self.swapchain,
+            );
+            *self = new_swapchain?;
+            Ok(())
+        }
+    }
 }
 
 impl Drop for Swapchain {
@@ -164,16 +180,15 @@ impl PresentationEngine {
         }
     }
 
+    // TODO: Might wish to encapsulate the frame index
     pub fn next_frame(&mut self, frame_index: u64) -> VkResult<PresentationContext<'_>> {
         let swapchain = &mut self.swapchain;
         let length = swapchain.swapchain_images.len();
         let synchronization = &mut swapchain.synchronization[frame_index as usize % length];
 
-        // TODO: handle suboptimal swapchains
         unsafe {
             let draw_fence = &mut synchronization.draw_fence;
             draw_fence.wait().unwrap();
-            draw_fence.reset().unwrap();
 
             let acquire_info = vk::AcquireNextImageInfoKHR::default()
                 .device_mask(1)
@@ -184,6 +199,8 @@ impl PresentationEngine {
             let (idx, _) = swapchain
                 .swapchain_loader
                 .acquire_next_image2(&acquire_info)?;
+
+            draw_fence.reset().unwrap();
 
             let image = swapchain.swapchain_images[idx as usize % length];
             let image_view = &swapchain.swapchain_image_views[idx as usize % length];
@@ -205,6 +222,10 @@ impl PresentationEngine {
                 render_target,
             })
         }
+    }
+
+    pub(crate) fn recreate_swapchain(&mut self) -> VkResult<()> {
+        self.swapchain.recreate()
     }
 }
 

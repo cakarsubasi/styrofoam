@@ -61,7 +61,19 @@ impl RenderState {
 pub enum RendererError {
     DeviceLost,
     SurfaceLost,
-    UnknownError,
+    SwapchainOutOfDate,
+    OtherError(vk::Result),
+}
+
+impl From<vk::Result> for RendererError {
+    fn from(value: vk::Result) -> Self {
+        match value {
+            vk::Result::ERROR_DEVICE_LOST => RendererError::DeviceLost,
+            vk::Result::ERROR_SURFACE_LOST_KHR => RendererError::SurfaceLost,
+            vk::Result::ERROR_OUT_OF_DATE_KHR => RendererError::SwapchainOutOfDate,
+            err => RendererError::OtherError(err),
+        }
+    }
 }
 
 impl Renderer {
@@ -87,89 +99,95 @@ impl Renderer {
 
     pub fn request_redraw(&mut self) -> Result<(), RendererError> {
         // record or reuse command buffer
-        let presentation_context = self
+        let result = self
             .presentation_engine
             .next_frame(self.state.frame_index)
-            .map_err(|_err| RendererError::UnknownError)?;
+            .and_then(|presentation_context| {
+                presentation_context.submit_and_present(|command_buffer, render_target| {
+                    let color_attachments = [vk::RenderingAttachmentInfo::default()
+                        .image_view(render_target.color_image_view)
+                        .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                        .load_op(vk::AttachmentLoadOp::CLEAR)
+                        .store_op(vk::AttachmentStoreOp::STORE)
+                        .clear_value(vk::ClearValue {
+                            color: vk::ClearColorValue {
+                                float32: [0.0, 0.0, 0.0, 1.0],
+                            },
+                        })];
 
-        self.state.frame_index += 1;
-        presentation_context
-            .submit_and_present(|command_buffer, render_target| {
-                let color_attachments = [vk::RenderingAttachmentInfo::default()
-                    .image_view(render_target.color_image_view)
-                    .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                    .load_op(vk::AttachmentLoadOp::CLEAR)
-                    .store_op(vk::AttachmentStoreOp::STORE)
-                    .clear_value(vk::ClearValue {
-                        color: vk::ClearColorValue {
-                            float32: [0.0, 0.0, 0.0, 1.0],
-                        },
-                    })];
+                    let depth_attachment = vk::RenderingAttachmentInfo::default();
+                    let stencil_attachment = vk::RenderingAttachmentInfo::default();
 
-                let depth_attachment = vk::RenderingAttachmentInfo::default();
-                let stencil_attachment = vk::RenderingAttachmentInfo::default();
-
-                let rendering_info = vk::RenderingInfo::default()
-                    .layer_count(1)
-                    .view_mask(0)
-                    .color_attachments(&color_attachments)
-                    .depth_attachment(&depth_attachment)
-                    .stencil_attachment(&stencil_attachment)
-                    .render_area(vk::Rect2D {
-                        offset: vk::Offset2D::default(),
-                        extent: render_target.extent,
-                    });
-
-                command_buffer.reset()?;
-
-                command_buffer.record(|command_buffer| {
-                    command_buffer.transition_image_layout(
-                        render_target.color_image,
-                        vk::ImageLayout::UNDEFINED,
-                        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                        vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        vk::AccessFlags2::empty(),
-                        vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                    );
-
-                    command_buffer.render(&rendering_info, |command_buffer| {
-                        command_buffer.cmd_set_viewport(&[vk::Viewport {
-                            x: 0.0,
-                            y: 0.0,
-                            width: render_target.extent.width as f32,
-                            height: render_target.extent.height as f32,
-                            min_depth: 0.0,
-                            max_depth: 1.0,
-                        }]);
-
-                        command_buffer.cmd_set_scissor(&[vk::Rect2D {
+                    let rendering_info = vk::RenderingInfo::default()
+                        .layer_count(1)
+                        .view_mask(0)
+                        .color_attachments(&color_attachments)
+                        .depth_attachment(&depth_attachment)
+                        .stencil_attachment(&stencil_attachment)
+                        .render_area(vk::Rect2D {
                             offset: vk::Offset2D::default(),
                             extent: render_target.extent,
-                        }]);
+                        });
 
-                        command_buffer.cmd_bind_pipeline(
-                            vk::PipelineBindPoint::GRAPHICS,
-                            &self.state.pipeline,
+                    command_buffer.reset()?;
+
+                    command_buffer.record(|command_buffer| {
+                        command_buffer.transition_image_layout(
+                            render_target.color_image,
+                            vk::ImageLayout::UNDEFINED,
+                            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                            vk::AccessFlags2::empty(),
+                            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
                         );
-                        // Enter commands here
-                        command_buffer.cmd_draw(3, 1, 0, 0);
-                    });
 
-                    command_buffer.transition_image_layout(
-                        render_target.color_image,
-                        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                        vk::ImageLayout::PRESENT_SRC_KHR,
-                        vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                        vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                        vk::AccessFlags2::empty(),
-                    );
-                })?;
+                        command_buffer.render(&rendering_info, |command_buffer| {
+                            command_buffer.cmd_set_viewport(&[vk::Viewport {
+                                x: 0.0,
+                                y: 0.0,
+                                width: render_target.extent.width as f32,
+                                height: render_target.extent.height as f32,
+                                min_depth: 0.0,
+                                max_depth: 1.0,
+                            }]);
 
-                Ok(())
-            }) // TODO: use the actual error
-            .map_err(|_err| RendererError::UnknownError)?;
-        Ok(())
+                            command_buffer.cmd_set_scissor(&[vk::Rect2D {
+                                offset: vk::Offset2D::default(),
+                                extent: render_target.extent,
+                            }]);
+
+                            command_buffer.cmd_bind_pipeline(
+                                vk::PipelineBindPoint::GRAPHICS,
+                                &self.state.pipeline,
+                            );
+                            // Enter commands here
+                            command_buffer.cmd_draw(3, 1, 0, 0);
+                        });
+
+                        command_buffer.transition_image_layout(
+                            render_target.color_image,
+                            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                            vk::ImageLayout::PRESENT_SRC_KHR,
+                            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                            vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                            vk::AccessFlags2::empty(),
+                        );
+                    })
+                })
+            });
+        self.state.frame_index += 1;
+        match result {
+            Ok(()) => Ok(()),
+            Err(vk::Result::SUBOPTIMAL_KHR) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                if self.presentation_engine.recreate_swapchain().is_err() {
+                    Err(RendererError::SwapchainOutOfDate)
+                } else {
+                    Ok(())
+                }
+            }
+            Err(err) => Err(err.into()),
+        }
     }
 }

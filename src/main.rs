@@ -86,10 +86,12 @@ impl ApplicationHandler for App {
                     ui.label("hope this works");
                 });
 
-                // TODO:
-                renderer.request_redraw().unwrap();
-
-                // app_context.window.request_redraw();
+                if let Err(err) = renderer.request_redraw() {
+                    // Window resized, minimized, etc.
+                    eprintln!("{:?}", err);
+                } else {
+                    app_context.window.request_redraw();
+                }
             }
             _ => {}
         }
