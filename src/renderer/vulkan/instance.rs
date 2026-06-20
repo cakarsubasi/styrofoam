@@ -2,6 +2,8 @@ use std::ffi::c_char;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
+use crate::renderer::vulkan::device::DeviceProps;
+
 use super::*;
 
 use ash::ext;
@@ -22,6 +24,8 @@ pub struct Instance {
 
     pub(super) surface_loader: khr::surface::Instance,
 }
+
+type QueueFamilyIndex = u32;
 
 impl Instance {
     pub unsafe fn new(raw_display_handle: RawDisplayHandle) -> Self {
@@ -125,33 +129,10 @@ impl Instance {
             );
         }
 
-        let (physical_device, queue_family_index) = pdevices
-            .iter()
-            .find_map(|pdevice| {
-                self.instance
-                    .get_physical_device_queue_family_properties(*pdevice)
-                    .iter()
-                    .enumerate()
-                    .find_map(|(index, info)| {
-                        let supports_graphic_and_surface =
-                            info.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                                && self
-                                    .surface_loader
-                                    .get_physical_device_surface_support(
-                                        *pdevice,
-                                        index as u32,
-                                        surface.inner,
-                                    )
-                                    .unwrap();
-                        if supports_graphic_and_surface {
-                            Some((*pdevice, index))
-                        } else {
-                            None
-                        }
-                    })
-            })
-            .expect("Couldn't find suitable device.");
-        let queue_family_index = queue_family_index as u32;
+        let (pdevice, queue_family_index) = self.choose_physical_device(surface);
+
+        // Check if VK_EXT_descriptor_heap is supported
+        let descriptor_heap_props = self.get_descriptor_heap_properties(&pdevice);
 
         // TODO: add extensions we want
         let enabled_extension_names = [
@@ -161,7 +142,7 @@ impl Instance {
             khr::synchronization2::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors
             // ext::shader_object::NAME.as_ptr(), // replace pipelines with shader objects
-            // ext::descriptor_heap::NAME.as_ptr(), // replace descriptor indexing with heaps
+            ext::descriptor_heap::NAME.as_ptr(), // replace descriptor indexing with heaps
             // ext::mesh_shader::NAME.as_ptr(), // mesh shaders, weeee
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             ash::khr::portability_subset::NAME.as_ptr(),
@@ -170,7 +151,8 @@ impl Instance {
         let vk10_features = vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true);
         let mut vk11_features =
             vk::PhysicalDeviceVulkan11Features::default().shader_draw_parameters(true);
-        let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default();
+        let mut vk12_features =
+            vk::PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
         let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
@@ -191,11 +173,12 @@ impl Instance {
 
         let device = self
             .instance
-            .create_device(physical_device, &device_create_info, None)
+            .create_device(pdevice, &device_create_info, None)
             .expect("Failed to create device");
 
-        let allocator_create_info =
-            vk_mem::AllocatorCreateInfo::new(&self.instance, &device, physical_device);
+        let mut allocator_create_info =
+            vk_mem::AllocatorCreateInfo::new(&self.instance, &device, pdevice);
+        allocator_create_info.flags = vk_mem::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
         let allocator =
             vk_mem::Allocator::new(allocator_create_info).expect("Failed to create allocator");
 
@@ -209,14 +192,104 @@ impl Instance {
 
         Device {
             instance: self,
-            physical_device,
+            physical_device: pdevice,
             inner: device,
             queue,
             queue_family_index,
             allocator,
             debug_utils_loader,
+            props: DeviceProps {
+                descriptor_heap: descriptor_heap_props,
+            },
         }
     }
+
+    fn choose_physical_device(&self, surface: &Surface) -> (vk::PhysicalDevice, QueueFamilyIndex) {
+        unsafe {
+            let result = self
+                .instance
+                .enumerate_physical_devices()
+                .unwrap()
+                .iter()
+                .find_map(|pdevice| {
+                    self.instance
+                        .get_physical_device_queue_family_properties(*pdevice)
+                        .iter()
+                        .enumerate()
+                        .find_map(|(index, info)| {
+                            let supports_graphic_and_surface =
+                                info.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+                                    && self
+                                        .surface_loader
+                                        .get_physical_device_surface_support(
+                                            *pdevice,
+                                            index as u32,
+                                            surface.inner,
+                                        )
+                                        .unwrap();
+                            if supports_graphic_and_surface {
+                                Some((*pdevice, index as u32))
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .expect("Couldn't find suitable device.");
+
+            result
+        }
+    }
+
+    fn get_descriptor_heap_properties(
+        &self,
+        pdevice: &vk::PhysicalDevice,
+    ) -> Option<DescriptorHeapProps> {
+        unsafe {
+            let mut heap_features = vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default();
+            let mut features = vk::PhysicalDeviceFeatures2::default().push(&mut heap_features);
+
+            self.instance
+                .get_physical_device_features2(*pdevice, &mut features);
+
+            if heap_features.descriptor_heap == vk::FALSE {
+                return None;
+            }
+
+            let mut heap_properties = vk::PhysicalDeviceDescriptorHeapPropertiesEXT::default();
+            let mut properties =
+                vk::PhysicalDeviceProperties2::default().push(&mut heap_properties);
+
+            self.instance
+                .get_physical_device_properties2(*pdevice, &mut properties);
+
+            Some(DescriptorHeapProps {
+                sampler_descriptor_size: heap_properties.sampler_descriptor_size,
+                image_descriptor_size: heap_properties.image_descriptor_size,
+                buffer_descriptor_size: heap_properties.buffer_descriptor_size,
+                sampler_heap_alignment: heap_properties.sampler_heap_alignment,
+                resource_heap_alignment: heap_properties.resource_heap_alignment,
+                min_sampler_heap_reserved_range: heap_properties.min_sampler_heap_reserved_range,
+                min_resource_heap_reserved_range: heap_properties.min_resource_heap_reserved_range,
+                max_resource_heap_size: heap_properties.max_resource_heap_size,
+                max_sampler_heap_size: heap_properties.max_sampler_heap_size,
+                max_push_data_size: heap_properties.max_push_data_size,
+            })
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DescriptorHeapProps {
+    pub sampler_descriptor_size: u64,
+    pub image_descriptor_size: u64,
+    pub buffer_descriptor_size: u64,
+    pub sampler_heap_alignment: u64,
+    pub resource_heap_alignment: u64,
+    pub min_sampler_heap_reserved_range: u64,
+    pub min_resource_heap_reserved_range: u64,
+    pub max_resource_heap_size: u64,
+    pub max_sampler_heap_size: u64,
+    pub max_push_data_size: u64,
 }
 
 impl Drop for Instance {

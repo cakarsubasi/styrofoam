@@ -8,8 +8,14 @@ use ash::vk::TaggedStructure as _;
 
 use crate::renderer::shader::SlangModule;
 use crate::renderer::shader::reflect::ShaderInfo;
+use crate::renderer::vulkan::instance::DescriptorHeapProps;
 
 use super::*;
+
+// We will cache stuff we check in instance creation and then use it as needed
+pub struct DeviceProps {
+    pub descriptor_heap: Option<DescriptorHeapProps>,
+}
 
 pub struct Device {
     pub(super) instance: Arc<Instance>,
@@ -19,6 +25,7 @@ pub struct Device {
     pub(super) queue_family_index: u32,
     pub(crate) allocator: vk_mem::Allocator,
     pub(super) debug_utils_loader: ext::debug_utils::Device,
+    pub(super) props: DeviceProps,
 }
 
 impl Device {
