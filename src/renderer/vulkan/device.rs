@@ -13,8 +13,13 @@ use crate::renderer::vulkan::instance::DescriptorHeapProps;
 use super::*;
 
 // We will cache stuff we check in instance creation and then use it as needed
-pub struct DeviceProps {
-    pub descriptor_heap: Option<DescriptorHeapProps>,
+pub struct DeviceExtensions {
+    pub(super) descriptor_heap: Option<ExtDescriptorHeap>,
+}
+
+pub struct ExtDescriptorHeap {
+    pub(super) device: ext::descriptor_heap::Device,
+    pub(super) props: DescriptorHeapProps,
 }
 
 pub struct Device {
@@ -25,7 +30,8 @@ pub struct Device {
     pub(super) queue_family_index: u32,
     pub(crate) allocator: vk_mem::Allocator,
     pub(super) debug_utils_loader: ext::debug_utils::Device,
-    pub(super) props: DeviceProps,
+    // loaders for device extensions
+    pub(super) ext: DeviceExtensions,
 }
 
 impl Device {

@@ -2,7 +2,8 @@ use std::ffi::c_char;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
-use crate::renderer::vulkan::device::DeviceProps;
+use crate::renderer::vulkan::device::DeviceExtensions;
+use crate::renderer::vulkan::device::ExtDescriptorHeap;
 
 use super::*;
 
@@ -109,6 +110,7 @@ impl Instance {
         }
     }
 
+    // TODO: maybe move device creation to device.rs instead?
     pub unsafe fn create_device(self: Arc<Self>, surface: &Surface) -> Device {
         let pdevices = self
             .instance
@@ -187,8 +189,12 @@ impl Instance {
             .queue_index(0);
 
         let queue = device.get_device_queue2(&queue_info);
-        // let swapchain_loader = khr::swapchain::Device::new(&self.instance, &device);
         let debug_utils_loader = ext::debug_utils::Device::load(&self.instance, &device);
+
+        let descriptor_heap = descriptor_heap_props.map(|props| ExtDescriptorHeap {
+            device: ext::descriptor_heap::Device::load(&self.instance, &device),
+            props,
+        });
 
         Device {
             instance: self,
@@ -198,8 +204,8 @@ impl Instance {
             queue_family_index,
             allocator,
             debug_utils_loader,
-            props: DeviceProps {
-                descriptor_heap: descriptor_heap_props,
+            ext: DeviceExtensions {
+                descriptor_heap: descriptor_heap,
             },
         }
     }
