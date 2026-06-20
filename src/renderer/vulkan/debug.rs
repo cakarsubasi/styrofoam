@@ -1,6 +1,8 @@
 use ash::{ext, vk};
 use std::{borrow::Cow, ffi};
 
+use super::*;
+
 // TODO: might wish to redirect these errors to a UI component later
 pub(super) unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -78,3 +80,8 @@ macro_rules! vk_debug_name_trait_impl {
         }
     };
 }
+
+vk_debug_name_trait_impl! {Semaphore}
+vk_debug_name_trait_impl! {Fence}
+vk_debug_name_trait_impl! {CommandBuffer}
+vk_debug_name_trait_impl! {CommandPool}

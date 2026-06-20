@@ -1,8 +1,6 @@
 #![allow(unsafe_op_in_unsafe_fn)]
-pub mod commands;
-#[macro_use]
-mod debug;
 pub mod shader;
+#[macro_use]
 pub mod vulkan;
 
 use ash;
@@ -13,14 +11,8 @@ use vk_mem::Alloc;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
-use crate::renderer::commands::*;
 use crate::renderer::shader::Slangc;
-use crate::renderer::vulkan::Device;
-use crate::renderer::vulkan::Pipeline;
-use crate::renderer::vulkan::PresentationEngine;
-use crate::renderer::vulkan::RecordingCommandBuffer;
-use crate::renderer::vulkan::Swapchain;
-use crate::renderer::vulkan::TargetFormat;
+use crate::renderer::vulkan::*;
 
 pub struct Renderer {
     _device: Arc<vulkan::Device>,
