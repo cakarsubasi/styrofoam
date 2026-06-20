@@ -1,6 +1,6 @@
 use ash::vk;
 
-use crate::renderer::vkhandles::{Device, Pipeline};
+use crate::renderer::vulkan::{Device, Pipeline};
 
 // This file exists for wankery and saving a few lines of code where it counts
 

@@ -3,25 +3,27 @@ pub mod commands;
 #[macro_use]
 mod debug;
 pub mod shader;
-pub mod vkhandles;
+pub mod vulkan;
 
 use ash;
 use ash::vk;
 use std::path::Path;
 use std::sync::Arc;
+use vk_mem::Alloc;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
 use crate::renderer::commands::*;
 use crate::renderer::shader::Slangc;
-use crate::renderer::vkhandles::Device;
-use crate::renderer::vkhandles::Pipeline;
-use crate::renderer::vkhandles::PresentationEngine;
-use crate::renderer::vkhandles::Swapchain;
-use crate::renderer::vkhandles::TargetFormat;
+use crate::renderer::vulkan::Device;
+use crate::renderer::vulkan::Pipeline;
+use crate::renderer::vulkan::PresentationEngine;
+use crate::renderer::vulkan::RecordingCommandBuffer;
+use crate::renderer::vulkan::Swapchain;
+use crate::renderer::vulkan::TargetFormat;
 
 pub struct Renderer {
-    _device: Arc<vkhandles::Device>,
+    _device: Arc<vulkan::Device>,
     presentation_engine: PresentationEngine,
     state: RenderState,
 }
@@ -81,10 +83,10 @@ impl Renderer {
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Self {
-        let instance = Arc::new(vkhandles::Instance::new(raw_display_handle));
+        let instance = Arc::new(vulkan::Instance::new(raw_display_handle));
         let surface = Arc::clone(&instance).create_surface(raw_display_handle, raw_window_handle);
         let device = Arc::new(instance.create_device(&surface));
-        let swapchain = vkhandles::Swapchain::new(Arc::clone(&device), Arc::new(surface))
+        let swapchain = vulkan::Swapchain::new(Arc::clone(&device), Arc::new(surface))
             .expect("Initial swapchain creation failure");
         let command_pool = Arc::clone(&device).create_command_pool().unwrap();
         let state = RenderState::new(&device, &swapchain);

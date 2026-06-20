@@ -273,7 +273,7 @@ pub struct Device {
     pub(super) inner: ash::Device,
     queue: vk::Queue,
     pub(super) queue_family_index: u32,
-    _allocator: vk_mem::Allocator,
+    pub(super) allocator: vk_mem::Allocator,
     debug_utils_loader: ext::debug_utils::Device,
 }
 
@@ -372,12 +372,12 @@ impl Device {
             .stencil_attachment_format(vk::Format::UNDEFINED);
 
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
-            .depth_clamp_enable(false) // ?
-            .rasterizer_discard_enable(false) // ?
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
             .cull_mode(vk::CullModeFlags::BACK) // should have this configurable
             .front_face(vk::FrontFace::CLOCKWISE)
-            .depth_bias_enable(false) // ?
+            .depth_bias_enable(false)
             .line_width(1.0);
 
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
@@ -550,6 +550,8 @@ raii_handle! {Semaphore, create_semaphore, destroy_semaphore}
 
 vk_debug_name_trait_impl! {Semaphore}
 vk_debug_name_trait_impl! {Fence}
+vk_debug_name_trait_impl! {CommandBuffer}
+vk_debug_name_trait_impl! {CommandPool}
 
 impl Fence {
     pub fn new_signalled(device: Arc<Device>) -> VkResult<Self> {
@@ -974,7 +976,7 @@ impl Instance {
             inner: device,
             queue,
             queue_family_index,
-            _allocator: allocator,
+            allocator,
             debug_utils_loader,
         }
     }
