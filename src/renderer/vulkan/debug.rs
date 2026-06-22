@@ -1,5 +1,5 @@
 use ash::{ext, vk};
-use std::{borrow::Cow, ffi};
+use std::{borrow::Cow, ffi::CStr};
 
 use super::*;
 
@@ -16,13 +16,13 @@ pub(super) unsafe extern "system" fn vulkan_debug_callback(
     let message_id_name = if callback_data.p_message_id_name.is_null() {
         Cow::from("")
     } else {
-        ffi::CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
+        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
     };
 
     let message = if callback_data.p_message.is_null() {
         Cow::from("")
     } else {
-        ffi::CStr::from_ptr(callback_data.p_message).to_string_lossy()
+        CStr::from_ptr(callback_data.p_message).to_string_lossy()
     };
 
     println!(
@@ -57,14 +57,29 @@ pub(super) unsafe fn create_debug_messenger(
 }
 
 // Convenient way to name objects for debug
-pub(super) trait DebugName {
-    fn debug_name(self, name: &std::ffi::CStr) -> Self;
+pub trait DebugName {
+    fn debug_name(self, name: &CStr) -> Self;
 }
 
 // Who needs proc macros anyway?
 macro_rules! vk_debug_name_trait_impl {
     ($struct_type:ident) => {
         impl DebugName for $struct_type {
+            fn debug_name(self, name: &std::ffi::CStr) -> Self {
+                let debug_utils_object_name = vk::DebugUtilsObjectNameInfoEXT::default()
+                    .object_handle(self.inner)
+                    .object_name(name);
+                unsafe {
+                    self.device
+                        .debug_utils_loader
+                        .set_debug_utils_object_name(&debug_utils_object_name)
+                        .unwrap();
+                }
+                self
+            }
+        }
+
+        impl DebugName for &$struct_type {
             fn debug_name(self, name: &std::ffi::CStr) -> Self {
                 let debug_utils_object_name = vk::DebugUtilsObjectNameInfoEXT::default()
                     .object_handle(self.inner)
@@ -85,3 +100,6 @@ vk_debug_name_trait_impl! {Semaphore}
 vk_debug_name_trait_impl! {Fence}
 vk_debug_name_trait_impl! {CommandBuffer}
 vk_debug_name_trait_impl! {CommandPool}
+vk_debug_name_trait_impl! {Buffer}
+vk_debug_name_trait_impl! {Image}
+vk_debug_name_trait_impl! {Pipeline}
