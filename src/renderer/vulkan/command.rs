@@ -174,6 +174,8 @@ impl Drop for CommandBuffer {
 }
 
 pub mod traits {
+    use std::ops::Deref;
+
     use super::*;
 
     // This module exists for wankery and saving a few lines of code where it counts
@@ -203,14 +205,26 @@ pub mod traits {
             self
         }
 
-        //    fn CmdDrawIndexed(
-        //        &self,
-        //        index_count: u32,
-        //        vertex_count: u32,
-        //        instance_count: u32,
-        //        first_vertex: u32,
-        //        first_instance: u32,
-        //    ) -> &self;
+        fn cmd_draw_indexed(
+            &self,
+            index_count: u32,
+            instance_count: u32,
+            first_index: u32,
+            vertex_offset: i32,
+            first_instance: u32,
+        ) -> &Self {
+            unsafe {
+                self.get_device().inner.cmd_draw_indexed(
+                    self.get_command_buffer(),
+                    index_count,
+                    instance_count,
+                    first_index,
+                    vertex_offset,
+                    first_instance,
+                );
+            }
+            self
+        }
         //
         //    fn CmdDrawIndirect(
         //        &self,
@@ -250,6 +264,50 @@ pub mod traits {
                     self.get_command_buffer(),
                     bind_point,
                     pipeline.inner,
+                );
+            }
+            self
+        }
+
+        // TODO: a better interface, safety checks
+        fn cmd_bind_vertex_buffers2(
+            &self,
+            first_binding: u32,
+            buffers: &[impl Deref<Target = Buffer>],
+            offsets: &[vk::DeviceSize],
+            sizes: Option<&[vk::DeviceSize]>,
+            strides: Option<&[vk::DeviceSize]>,
+        ) -> &Self {
+            // TODO: use a bump allocator for this
+            let buffers: Vec<_> = buffers.iter().map(|buffer| buffer.inner).collect();
+
+            unsafe {
+                self.get_device().inner.cmd_bind_vertex_buffers2(
+                    self.get_command_buffer(),
+                    first_binding,
+                    buffers.as_slice(),
+                    offsets,
+                    sizes,
+                    strides,
+                );
+            }
+            self
+        }
+
+        fn cmd_bind_index_buffer2(
+            &self,
+            buffer: &Buffer,
+            offset: u64,
+            size: vk::DeviceSize,
+            index_type: vk::IndexType,
+        ) -> &Self {
+            unsafe {
+                self.get_device().inner.cmd_bind_index_buffer2(
+                    self.get_command_buffer(),
+                    buffer.inner,
+                    offset,
+                    size,
+                    index_type,
                 );
             }
             self
