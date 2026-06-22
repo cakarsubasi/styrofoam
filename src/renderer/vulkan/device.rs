@@ -119,15 +119,15 @@ impl Device {
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
 
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default();
-
-        let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::default();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
+            .vertex_attribute_descriptions(&[])
+            .vertex_binding_descriptions(&[]);
 
         let mut rendering_create_info = vk::PipelineRenderingCreateInfo::default()
             .view_mask(0)
             .color_attachment_formats(target_format.color)
-            .depth_attachment_format(vk::Format::UNDEFINED)
-            .stencil_attachment_format(vk::Format::UNDEFINED);
+            .depth_attachment_format(target_format.depth.unwrap_or(vk::Format::UNDEFINED))
+            .stencil_attachment_format(target_format.stencil.unwrap_or(vk::Format::UNDEFINED));
 
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
             .depth_clamp_enable(false)
@@ -152,19 +152,14 @@ impl Device {
             .min_depth_bounds(0.0)
             .max_depth_bounds(1.0);
 
-        let attachments = [vk::PipelineColorBlendAttachmentState::default()
+        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
             .blend_enable(false)
             .color_write_mask(vk::ColorComponentFlags::RGBA)];
 
         let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
             .logic_op_enable(false)
             .logic_op(vk::LogicOp::COPY)
-            .attachments(&attachments);
-
-        let pipeline_layout = unsafe {
-            self.inner
-                .create_pipeline_layout(&pipeline_layout_create_info, None)?
-        };
+            .attachments(&color_blend_attachments);
 
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
             .scissor_count(1)
@@ -181,6 +176,9 @@ impl Device {
             })
             .collect();
 
+        let mut graphics_pipeline_flags = vk::PipelineCreateFlags2CreateInfo::default()
+            .flags(vk::PipelineCreateFlags2::DESCRIPTOR_HEAP_EXT);
+
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .flags(vk::PipelineCreateFlags::empty())
             .stages(&pipeline_stages)
@@ -192,9 +190,10 @@ impl Device {
             .depth_stencil_state(&depth_stencil_state)
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state)
-            .layout(pipeline_layout)
-            .render_pass(vk::RenderPass::null()) // hooray for dynamic rendering
-            .push(&mut rendering_create_info);
+            .layout(vk::PipelineLayout::null()) // VK_EXT_descriptor_heap
+            .render_pass(vk::RenderPass::null()) // VK_KHR_dynamic_rendering
+            .push(&mut rendering_create_info)
+            .push(&mut graphics_pipeline_flags);
 
         unsafe {
             let pipelines = self
@@ -206,7 +205,6 @@ impl Device {
                 )
                 .map_err(|(_, res)| res)?;
 
-            self.inner.destroy_pipeline_layout(pipeline_layout, None);
             Ok(Pipeline {
                 device: self,
                 inner: pipelines[0],
