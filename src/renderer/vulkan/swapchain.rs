@@ -64,11 +64,7 @@ impl Swapchain {
             return Err(vk::Result::NOT_READY);
         }
 
-        let surface_formats = surface_loader
-            .get_physical_device_surface_formats(device.physical_device, surface.inner)?;
-
-        // TODO: should probably fetch an RGB format instead of BGR
-        let surface_format = surface_formats[0];
+        let surface_format = Self::choose_surface_format(&device, surface_loader, &surface)?;
 
         let present_modes = surface_loader
             .get_physical_device_surface_present_modes(device.physical_device, surface.inner)?;
@@ -129,6 +125,27 @@ impl Swapchain {
 
             synchronization,
         })
+    }
+
+    fn choose_surface_format(
+        device: &Device,
+        surface_loader: &khr::surface::Instance,
+        surface: &Surface,
+    ) -> VkResult<vk::SurfaceFormatKHR> {
+        unsafe {
+            let surface_formats = surface_loader
+                .get_physical_device_surface_formats(device.physical_device, surface.inner)?;
+
+            let surface_format = surface_formats
+                .iter()
+                .find(|&format| {
+                    format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+                        && format.format == vk::Format::R8G8B8A8_SRGB
+                })
+                .unwrap_or(&surface_formats[0]);
+
+            Ok(*surface_format)
+        }
     }
 
     fn recreate(&mut self) -> VkResult<()> {
