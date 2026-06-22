@@ -1,3 +1,4 @@
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 
 use ash::VkResult;
@@ -28,7 +29,7 @@ pub struct Device {
     pub(super) inner: ash::Device,
     pub(super) queue: vk::Queue,
     pub(super) queue_family_index: u32,
-    pub(crate) allocator: vk_mem::Allocator,
+    pub(crate) allocator: ManuallyDrop<vk_mem::Allocator>,
     pub(super) debug_utils_loader: ext::debug_utils::Device,
     // loaders for device extensions
     pub(super) ext: DeviceExtensions,
@@ -243,6 +244,10 @@ impl Drop for Device {
         println!("Destroying Device");
         unsafe {
             self.inner.device_wait_idle().unwrap();
+            let allocator_handle = self.allocator.get_raw();
+            let allocator = vk_mem::Allocator::from_raw(allocator_handle);
+            drop(allocator);
+
             self.inner.destroy_device(None);
         }
     }

@@ -202,7 +202,7 @@ impl Instance {
             inner: device,
             queue,
             queue_family_index,
-            allocator,
+            allocator: ManuallyDrop::new(allocator),
             debug_utils_loader,
             ext: DeviceExtensions {
                 descriptor_heap: descriptor_heap,
