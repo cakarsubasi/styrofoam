@@ -29,6 +29,13 @@ pub(super) unsafe extern "system" fn vulkan_debug_callback(
         "{message_severity:?}:{message_type:?} [{message_id_name} ({message_id_number})] : {message}\n",
     );
 
+    if message_severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR)
+        || message_severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::WARNING)
+    {
+        // break debugger here
+        print!("");
+    }
+
     vk::FALSE
 }
 
@@ -96,10 +103,10 @@ macro_rules! vk_debug_name_trait_impl {
     };
 }
 
-vk_debug_name_trait_impl! {Semaphore}
-vk_debug_name_trait_impl! {Fence}
-vk_debug_name_trait_impl! {CommandBuffer}
-vk_debug_name_trait_impl! {CommandPool}
-vk_debug_name_trait_impl! {Buffer}
-vk_debug_name_trait_impl! {Image}
-vk_debug_name_trait_impl! {Pipeline}
+//vk_debug_name_trait_impl! {Semaphore}
+//vk_debug_name_trait_impl! {Fence}
+//vk_debug_name_trait_impl! {CommandBuffer}
+//vk_debug_name_trait_impl! {CommandPool}
+//vk_debug_name_trait_impl! {Buffer}
+//vk_debug_name_trait_impl! {Image}
+//vk_debug_name_trait_impl! {Pipeline}
