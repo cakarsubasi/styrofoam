@@ -241,6 +241,30 @@ impl CommandBuffer {
             );
         }
     }
+
+    unsafe fn set_fixed_dynamic_states(&mut self, extent: vk::Extent2D) {
+        unsafe {
+            let viewports = [vk::Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: extent.width as f32,
+                height: extent.height as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            }];
+
+            self.device
+                .inner
+                .cmd_set_viewport(self.inner, 0, &viewports);
+
+            let scissors = [vk::Rect2D {
+                offset: vk::Offset2D::default(),
+                extent,
+            }];
+
+            self.device.inner.cmd_set_scissor(self.inner, 0, &scissors);
+        }
+    }
 }
 
 impl CommandRHI for CommandBuffer {
@@ -446,6 +470,9 @@ impl CommandRHI for CommandBuffer {
 
             self.multiple_layout_transition(&self.layout_transition_queue);
             self.layout_transition_queue.clear();
+
+            //
+            self.set_fixed_dynamic_states(extent);
         }
     }
 
