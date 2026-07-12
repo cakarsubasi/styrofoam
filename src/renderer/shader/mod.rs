@@ -67,6 +67,8 @@ impl Slangc {
             .arg("-fvk-use-entrypoint-name")
             //.args(["-entry", "vertMain"])
             //.args(["-entry", "fragMain"])
+            .args(["-capability", "spvDescriptorHeapEXT"])
+            .args(["-capability", "SPV_KHR_untyped_pointers"])
             .args([OsStr::new("-reflection-json"), reflection_path.as_os_str()])
             .args([OsStr::new("-o"), output_path.as_os_str()])
             .output()
@@ -74,9 +76,8 @@ impl Slangc {
 
         let errors = output.stderr;
 
-        if !output.status.success() {
-            eprintln!("{}", &String::from_utf8_lossy(&errors));
-        }
+        eprintln!("{}", &String::from_utf8_lossy(&errors));
+        if !output.status.success() {}
 
         // json must be valid utf-8
         let reflection =
@@ -100,18 +101,16 @@ impl Slangc {
 #[cfg(test)]
 mod tests {
 
-    use std::io::Write;
+    use std::{io::Write, path::PathBuf};
 
     use super::*;
 
     #[test]
     fn run_slangc() {
-        let root = std::env::current_dir().unwrap();
-        let shader_root = root.join("res").join("shaders");
-        let shader = shader_root.join("triangle.slang");
+        let shader = PathBuf::from("res/shaders/2d/egui.slang");
         let shader = Slangc::new().compile(&shader).unwrap();
 
-        let mut refl = File::create("refl.json").unwrap();
+        let mut refl = File::create("reflection.json").unwrap();
 
         write!(&mut refl, "{:?}", shader.reflection).unwrap();
         dbg!(&shader.reflection);

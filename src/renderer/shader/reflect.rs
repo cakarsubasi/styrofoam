@@ -17,12 +17,28 @@ pub mod EntryPoint {
         pub semanticName: Option<String>,
         /// Type of the parameter
         pub r#type: ParameterType,
+
+        /// stage of the parameter
+        pub stage: Option<String>,
+        /// binding information of the parameter
+        pub binding: Option<Binding>,
     }
 
     /// Return value
     #[derive(Debug, Deserialize)]
     pub struct OutputParameter {
         pub r#type: ParameterType,
+
+        pub stage: Option<String>,
+        pub binding: Option<Binding>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct Binding {
+        // The kind of the binding, for example varyingInput or varyingOutput
+        pub kind: String,
+        pub index: Option<u32>,
+        pub count: Option<u32>,
     }
 
     #[derive(Debug, Deserialize)]
