@@ -606,6 +606,7 @@ impl QueueRef {
         command_buffer.present = Some(PresentSubmitEtc {
             image_idx: next_frame.image_idx,
             semaphore: next_frame.submit_signal_present_wait,
+            swapchain_extent: next_frame.image.extent,
         });
         command_buffer
     }

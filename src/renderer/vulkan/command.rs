@@ -83,6 +83,7 @@ pub(super) struct SemaphoreInfo {
 
 pub struct PresentSubmitEtc {
     pub(super) image_idx: u32,
+    pub(super) swapchain_extent: vk::Extent2D,
     pub(super) semaphore: vk::Semaphore,
 }
 
@@ -347,6 +348,8 @@ impl CommandRHI for CommandBuffer {
                         Framebuffer::Swapchain(SwapchainImage {
                             image: _image,
                             view,
+                            extent: _,
+                            format: _,
                         }) => view,
                     };
 
@@ -423,7 +426,8 @@ impl CommandRHI for CommandBuffer {
             let extent = if let Some(target) = desc.color_targets.first() {
                 target.image.extent()
             } else {
-                vk::Extent2D::default()
+                // Swapchain extent
+                self.present.as_ref().unwrap().swapchain_extent
             };
             let rendering_info = vk::RenderingInfo::default()
                 .layer_count(1)

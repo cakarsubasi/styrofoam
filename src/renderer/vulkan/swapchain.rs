@@ -40,6 +40,8 @@ pub struct Swapchain {
 pub struct SwapchainImage {
     pub(super) image: vk::Image,
     pub(super) view: vk::ImageView,
+    pub(super) extent: vk::Extent2D,
+    pub(super) format: vk::Format,
 }
 
 pub struct PresentationResources {
@@ -132,7 +134,12 @@ impl Swapchain {
                         }),
                     None,
                 )?;
-                Ok(SwapchainImage { image, view })
+                Ok(SwapchainImage {
+                    image,
+                    view,
+                    format: surface_format.format,
+                    extent: surface_caps.current_extent,
+                })
             })
             .collect::<VkResult<Vec<SwapchainImage>>>()?;
 
