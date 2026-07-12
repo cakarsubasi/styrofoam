@@ -229,8 +229,9 @@ impl Instance {
         let vk10_features = vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true);
         let mut vk11_features =
             vk::PhysicalDeviceVulkan11Features::default().shader_draw_parameters(true);
-        let mut vk12_features =
-            vk::PhysicalDeviceVulkan12Features::default().buffer_device_address(true);
+        let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
+            .buffer_device_address(true)
+            .timeline_semaphore(true);
         let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
@@ -242,8 +243,6 @@ impl Instance {
         let mut shader_untyped_ptrs_feature =
             vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::default()
                 .shader_untyped_pointers(true);
-        let mut timeline_semaphore_feature =
-            vk::PhysicalDeviceTimelineSemaphoreFeatures::default().timeline_semaphore(true);
 
         let mut enabled_features = vk::PhysicalDeviceFeatures2::default()
             .features(vk10_features)
@@ -252,8 +251,7 @@ impl Instance {
             .push(&mut vk13_features)
             .push(&mut vk14_features)
             .push(&mut descriptor_heap_feature)
-            .push(&mut shader_untyped_ptrs_feature)
-            .push(&mut timeline_semaphore_feature);
+            .push(&mut shader_untyped_ptrs_feature);
 
         let queue_create_infos = [
             vk::DeviceQueueCreateInfo::default()
