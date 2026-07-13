@@ -175,7 +175,12 @@ pub trait DeviceRHI {
     fn with_mapping(&mut self, ptr: Self::GpuPtr, f: fn(&mut [u8]));
     fn delete_ptr(&mut self, ptr: Self::GpuPtr);
 
-    fn create_queue(&mut self, ty: QueueType) -> Self::Queue;
+    fn create_queue(
+        &mut self,
+        ty: QueueType,
+        command_pools: u32,
+        command_buffers_per_pool: u32,
+    ) -> Self::Queue;
 
     fn create_semaphore(&mut self, initial_value: u64) -> Self::Semaphore;
     fn wait_semaphores(&self, semaphores: &[Self::Semaphore], values: &[u64]);
@@ -208,7 +213,7 @@ pub trait SemaphoreRHI {
 pub trait QueueRHI {
     type CommandBuffer: CommandRHI;
 
-    fn begin_recording(&mut self) -> Self::CommandBuffer;
+    fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer;
     fn submit(&mut self, command_buffers: &[Self::CommandBuffer]);
 }
 

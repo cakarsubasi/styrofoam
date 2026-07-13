@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::Weak;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicI32;
 use std::sync::atomic::Ordering;
 
 use ash::VkResult;
@@ -196,29 +196,17 @@ pub struct DeviceHandles {
     pub extended_dynamic_state3: ext::extended_dynamic_state3::Device,
 }
 
-struct OwnedQueue {
-    family_index: u32,
-    queues: Vec<vk::Queue>,
-    queues_used: usize,
+struct CommandPool {
     command_pool: vk::CommandPool,
     command_buffers: Vec<vk::CommandBuffer>,
-    command_buffers_used: AtomicUsize,
+    used: AtomicI32,
 }
 
-#[derive(Clone, Copy)]
-struct QueueInfo {
-    queue: vk::Queue,
-    family: u32,
-}
-
-impl OwnedQueue {
-    fn new(device: &ash::Device, queue_index: u32) -> Self {
+impl CommandPool {
+    fn new(device: &ash::Device, queue_index: u32, command_buffer_count: u32) -> Self {
         unsafe {
-            let command_buffer_count = 8;
-            let queue = device.get_device_queue(queue_index, 0);
-
             let command_pool_create_info = &vk::CommandPoolCreateInfo::default()
-                .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+                //.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
                 .queue_family_index(queue_index);
 
             let command_pool = device
@@ -230,14 +218,67 @@ impl OwnedQueue {
                 .command_pool(command_pool);
 
             let command_buffers = device.allocate_command_buffers(&allocate_info).unwrap();
+            Self {
+                command_pool,
+                command_buffers,
+                used: AtomicI32::new(0),
+            }
+        }
+    }
+
+    fn reset(&self, device: &ash::Device) {
+        unsafe {
+            device
+                .reset_command_pool(
+                    self.command_pool,
+                    vk::CommandPoolResetFlags::RELEASE_RESOURCES,
+                )
+                .unwrap();
+
+            self.used.store(0, Ordering::Release);
+        }
+    }
+
+    fn destroy(self, device: &ash::Device) {
+        unsafe {
+            device.destroy_command_pool(self.command_pool, None);
+        }
+    }
+}
+
+struct OwnedQueue {
+    family_index: u32,
+    queues: Vec<vk::Queue>,
+    queues_used: usize,
+    command_pools: Vec<CommandPool>,
+}
+
+#[derive(Clone, Copy)]
+struct QueueInfo {
+    queue: vk::Queue,
+    family: u32,
+}
+
+impl OwnedQueue {
+    fn new(
+        device: &ash::Device,
+        queue_index: u32,
+        command_pools: u32,
+        command_buffers_per_pool: u32,
+    ) -> Self {
+        unsafe {
+            let queue = device.get_device_queue(queue_index, 0);
+
+            let command_pools = (0..command_pools)
+                .into_iter()
+                .map(|_| CommandPool::new(device, queue_index, command_buffers_per_pool))
+                .collect();
 
             Self {
                 family_index: queue_index,
                 queues: vec![queue],
                 queues_used: 0,
-                command_pool: command_pool,
-                command_buffers: command_buffers,
-                command_buffers_used: AtomicUsize::new(0),
+                command_pools: command_pools,
             }
         }
     }
@@ -257,9 +298,9 @@ pub struct Device2 {
     heap: Arc<RwLock<DescriptorHeap>>,
     shader_cache: ShaderCache,
     // Queues share their lifetime with the device
-    graphics_queues: Option<Arc<OwnedQueue>>,
-    compute_queues: Option<Arc<OwnedQueue>>,
-    copy_queues: Option<Arc<OwnedQueue>>,
+    //graphics_queues: Option<Arc<OwnedQueue>>,
+    //compute_queues: Option<Arc<OwnedQueue>>,
+    //copy_queues: Option<Arc<OwnedQueue>>,
     swapchain: Option<Arc<Swapchain>>,
 }
 
@@ -308,9 +349,9 @@ impl Device2 {
                 extended_dynamic_state3,
             });
 
-            let graphics_queues = OwnedQueue::new(&handles.inner, graphics_queue_index);
-            let compute_queues = OwnedQueue::new(&handles.inner, compute_queue_index);
-            let copy_queues = OwnedQueue::new(&handles.inner, transfer_queue_index);
+            //let graphics_queues = OwnedQueue::new(&handles.inner, graphics_queue_index);
+            //let compute_queues = OwnedQueue::new(&handles.inner, compute_queue_index);
+            //let copy_queues = OwnedQueue::new(&handles.inner, transfer_queue_index);
 
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();
 
@@ -319,9 +360,9 @@ impl Device2 {
                 handles: handles,
                 heap: Arc::new(RwLock::new(descriptor_heap)),
                 shader_cache: ShaderCache::new(),
-                graphics_queues: Some(Arc::new(graphics_queues)),
-                compute_queues: Some(Arc::new(compute_queues)),
-                copy_queues: Some(Arc::new(copy_queues)),
+                //graphics_queues: Some(Arc::new(graphics_queues)),
+                //compute_queues: Some(Arc::new(compute_queues)),
+                //copy_queues: Some(Arc::new(copy_queues)),
                 swapchain: Some(Arc::new(swapchain)),
             }
         }
@@ -359,13 +400,18 @@ impl DeviceRHI for Device2 {
         self.heap.write().unwrap().free(ptr);
     }
 
-    fn create_queue(&mut self, ty: QueueType) -> Self::Queue {
+    fn create_queue(
+        &mut self,
+        ty: QueueType,
+        command_pools: u32,
+        command_buffers_per_pool: u32,
+    ) -> Self::Queue {
         match ty {
             QueueType::Graphics => QueueRef {
                 device: Arc::downgrade(&self.handles),
                 heap: Arc::downgrade(&self.heap),
                 idx: 0,
-                queue: Arc::downgrade(self.graphics_queues.as_ref().unwrap()),
+                queue: OwnedQueue::new(&self.device(), 0, command_pools, command_buffers_per_pool),
                 swapchain: self.swapchain.as_ref().map(|s| Arc::downgrade(&s)),
                 frames: 0,
             },
@@ -566,21 +612,38 @@ pub struct QueueRef {
     device: Weak<DeviceHandles>,
     heap: Weak<RwLock<DescriptorHeap>>,
     idx: u32,
-    queue: Weak<OwnedQueue>,
+    queue: OwnedQueue,
     swapchain: Option<Weak<Swapchain>>,
     frames: u64,
 }
 
 impl QueueRef {
-    fn get_command_buffer(&mut self) -> vk::CommandBuffer {
-        let queue = self.queue.upgrade().unwrap();
-        let idx = queue.command_buffers_used.fetch_add(1, Ordering::Relaxed);
-        let command_buffer = queue.command_buffers[idx];
-        command_buffer
+    fn get_command_buffer(&mut self, command_pool: u32) -> vk::CommandBuffer {
+        let queue = &self.queue; //.upgrade().unwrap();
+        let command_pool = queue
+            .command_pools
+            .get(command_pool as usize)
+            .expect(&format!(
+                "Invalid command pool index {}. There are only {} command pools available.",
+                command_pool,
+                queue.command_pools.len()
+            ));
+
+        if command_pool.used.load(Ordering::Acquire) == -1 {
+            command_pool.reset(&self.device.upgrade().unwrap().inner);
+        }
+
+        let idx = command_pool.used.fetch_add(1, Ordering::Release);
+        let command_buffer = command_pool.command_buffers.get(idx as usize).expect(&format!(
+            "Attempted to requested {} command buffers. But this command pool only has {} available.",
+            idx + 1,
+            command_pool.command_buffers.len()));
+        *command_buffer
     }
 
     pub fn begin_recording_presentation(
         &mut self,
+        command_pool: u32,
         frame_index: u64,
     ) -> <Self as QueueRHI>::CommandBuffer {
         let next_frame = self
@@ -592,7 +655,7 @@ impl QueueRef {
             .next_frame(frame_index)
             .unwrap();
 
-        let mut command_buffer = self.begin_recording();
+        let mut command_buffer = self.begin_recording(command_pool);
         command_buffer.signal.push(SemaphoreInfo {
             semaphore: next_frame.submit_signal_present_wait,
             value: 0,
@@ -615,7 +678,7 @@ impl QueueRef {
         let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
 
         self.submit(slice::from_ref(command_buffer));
-        let queue = self.queue.upgrade().unwrap().queues[self.idx as usize];
+        let queue = self.queue.queues[self.idx as usize]; //.upgrade().unwrap().queues[self.idx as usize];
 
         let frame = command_buffer.present.as_ref().unwrap();
 
@@ -630,7 +693,7 @@ impl QueueRef {
             swapchain
                 .swapchain_loader
                 .queue_present(queue, &present_info)
-                .unwrap(); // Must handle
+                .unwrap(); // Must handle out of date
         }
     }
 }
@@ -638,8 +701,8 @@ impl QueueRef {
 impl QueueRHI for QueueRef {
     type CommandBuffer = super::CommandBuffer;
 
-    fn begin_recording(&mut self) -> Self::CommandBuffer {
-        let command_buffer = self.get_command_buffer();
+    fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer {
+        let command_buffer = self.get_command_buffer(command_pool);
 
         let begin_info = &vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
@@ -656,6 +719,7 @@ impl QueueRHI for QueueRef {
                 device,
                 heap: self.heap.upgrade().unwrap(),
                 inner: command_buffer,
+                command_pool_idx: command_pool,
                 signal: vec![],
                 wait: vec![],
                 layout_transition_queue: vec![],
@@ -666,7 +730,22 @@ impl QueueRHI for QueueRef {
 
     fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) {
         unsafe {
+            if command_buffers.is_empty() {
+                return;
+            }
+
             let device = self.device.upgrade().unwrap();
+            let command_pool_idx = command_buffers
+                .iter()
+                .map(|cb| cb.command_pool_idx)
+                .reduce(|acc, value| {
+                    assert_eq!(
+                        acc, value,
+                        "Attempted to submit command buffers from different command pools",
+                    );
+                    value
+                })
+                .unwrap();
             for cb in command_buffers {
                 // Good opportunity to handle device loss
                 device.inner.end_command_buffer(cb.inner).unwrap();
@@ -676,8 +755,6 @@ impl QueueRHI for QueueRef {
                 .iter()
                 .map(|cb| vk::CommandBufferSubmitInfo::default().command_buffer(cb.inner))
                 .collect();
-
-            // Would this still work with multiple command buffers or should I split to multiple submits?
 
             let wait_semaphores: Vec<_> = command_buffers
                 .iter()
@@ -705,14 +782,16 @@ impl QueueRHI for QueueRef {
                 .signal_semaphore_infos(&signal_semaphores)
                 .wait_semaphore_infos(&wait_semaphores)];
             // Good opportunity to handle device loss
+            let queue = &mut self.queue; // .upgrade().unwrap();
             device
                 .inner
-                .queue_submit2(
-                    self.queue.upgrade().unwrap().queues[self.idx as usize],
-                    &submits,
-                    vk::Fence::null(),
-                )
+                .queue_submit2(queue.queues[self.idx as usize], &submits, vk::Fence::null())
                 .unwrap();
+
+            // Store -1 to indicate command pool requires resetting
+            queue.command_pools[command_pool_idx as usize]
+                .used
+                .store(-1, Ordering::Release);
         }
     }
 }

@@ -88,12 +88,16 @@ pub struct PresentSubmitEtc {
 }
 
 pub struct CommandBuffer {
+    // Handles
     pub(super) device: Arc<DeviceHandles>,
-    pub(super) heap: Arc<RwLock<DescriptorHeap>>, // I need to have some sort of RW lock but for now, arc is ok
+    pub(super) heap: Arc<RwLock<DescriptorHeap>>,
     pub(super) inner: vk::CommandBuffer,
+    pub(super) command_pool_idx: u32,
+    // Subpass state
     pub(super) wait: Vec<SemaphoreInfo>,
     pub(super) signal: Vec<SemaphoreInfo>,
     pub(super) layout_transition_queue: Vec<LayoutTransition>,
+    // Presentation state
     pub(super) present: Option<PresentSubmitEtc>,
 }
 
