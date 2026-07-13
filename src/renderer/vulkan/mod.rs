@@ -11,18 +11,15 @@ pub mod instance;
 /// Swapchain, surface, and presentation related functionality
 pub mod swapchain;
 /// Fences and semaphores
-pub mod sync;
-
+//pub mod sync;
 use std::path::Path;
 
 use crate::renderer::vulkan::device::{GpuPtr, ShaderIR2};
 use crate::renderer::vulkan::swapchain::SwapchainImage;
 
-pub use self::command::{CommandBuffer, ImageView, Pipeline, ShaderModule, traits::*};
-pub use self::device::Device;
+pub use self::command::{CommandBuffer, Pipeline};
 pub use self::instance::Instance;
-pub use self::swapchain::{PresentationContext, Surface, Swapchain, TargetFormat};
-pub use self::sync::{Fence, Semaphore};
+pub use self::swapchain::{Surface, Swapchain, TargetFormat};
 
 pub struct DepthStencilState {
     //mode: DepthFlags,

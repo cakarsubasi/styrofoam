@@ -256,12 +256,6 @@ pub struct NextFrame {
 
 impl Swapchain {}
 
-struct PresentationSynchronization {
-    draw_fence: Fence,
-    render_finished: Semaphore,
-    present_complete: Semaphore,
-}
-
 pub struct RenderTarget<'a> {
     swapchain: vk::SwapchainKHR,
     swapchain_loader: &'a khr::swapchain::Device,
@@ -269,61 +263,6 @@ pub struct RenderTarget<'a> {
     image_idx: u32,
     pub color_image: vk::Image,
     pub color_image_view: vk::ImageView,
-    synchronization: &'a PresentationSynchronization,
-}
-
-pub struct PresentationContext<'a> {
-    command_buffer: &'a CommandBuffer,
-    render_target: RenderTarget<'a>,
-}
-
-impl<'a> PresentationContext<'a> {
-    pub fn submit_and_present(
-        self,
-        f: impl Fn(&CommandBuffer, &RenderTarget) -> VkResult<()>,
-    ) -> VkResult<()> {
-        let _ = f(self.command_buffer, &self.render_target)?;
-        let command_buffer = &self.command_buffer;
-        let render_target = &self.render_target;
-
-        let submit_info =
-            [vk::CommandBufferSubmitInfo::default().command_buffer(command_buffer.inner)];
-        let render_finish_semaphore = [vk::SemaphoreSubmitInfo::default()
-            .semaphore(render_target.synchronization.render_finished.inner)
-            .stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)];
-        let present_complete_semaphore = [vk::SemaphoreSubmitInfo::default()
-            .semaphore(render_target.synchronization.present_complete.inner)
-            .stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)];
-        let submits = [vk::SubmitInfo2::default()
-            .command_buffer_infos(&submit_info)
-            .signal_semaphore_infos(&render_finish_semaphore)
-            .wait_semaphore_infos(&present_complete_semaphore)];
-
-        unsafe {
-            command_buffer
-                .device
-                .inner
-                .queue_submit2(
-                    vk::Queue::null(),
-                    &submits,
-                    render_target.synchronization.draw_fence.inner,
-                )
-                .unwrap();
-
-            let swapchains = [render_target.swapchain];
-            let wait_semaphores = [render_target.synchronization.render_finished.inner];
-            let indices = [render_target.image_idx];
-            let present_info = vk::PresentInfoKHR::default()
-                .swapchains(&swapchains)
-                .wait_semaphores(&wait_semaphores)
-                .image_indices(&indices);
-
-            render_target
-                .swapchain_loader
-                .queue_present(vk::Queue::null(), &present_info)?;
-        }
-        Ok(())
-    }
 }
 
 pub struct TargetFormat<'a> {

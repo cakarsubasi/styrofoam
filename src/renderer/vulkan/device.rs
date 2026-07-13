@@ -47,110 +47,6 @@ pub struct ExtDescriptorHeap {
     pub(super) props: DescriptorHeapProps,
 }
 
-pub struct Device {
-    pub(super) instance: Arc<Instance>,
-    pub(super) physical_device: vk::PhysicalDevice,
-    pub inner: ash::Device,
-    pub(super) queue: vk::Queue,
-    pub(super) queue_family_index: u32,
-    pub(crate) allocator: ManuallyDrop<vk_mem::Allocator>,
-    pub(super) debug_utils_loader: ext::debug_utils::Device,
-    // loaders for device extensions
-    pub(super) ext: DeviceExtensions,
-}
-
-impl Device {
-    pub fn create_fence(self: Arc<Device>) -> VkResult<Fence> {
-        let fence = unsafe {
-            self.inner
-                .create_fence(&vk::FenceCreateInfo::default(), None)?
-        };
-
-        Ok(Fence {
-            device: self,
-            inner: fence,
-        })
-    }
-
-    pub fn create_semaphore(self: Arc<Device>) -> VkResult<Semaphore> {
-        let semaphore = unsafe {
-            self.inner
-                .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)?
-        };
-
-        Ok(Semaphore {
-            device: self,
-            inner: semaphore,
-        })
-    }
-
-    pub fn create_shader_module(self: Arc<Device>, shader: &SlangModule) -> ShaderModule {
-        let code = bytemuck::try_cast_slice(shader.spirv.text.as_chunks::<4>().0).unwrap();
-        let info: Option<Vec<ShaderInfo>> = shader
-            .reflection
-            .as_ref()
-            .map(|reflection| reflection.into())
-            .unwrap();
-
-        dbg!(&info);
-
-        let create_info = vk::ShaderModuleCreateInfo::default().code(code);
-        unsafe {
-            let shader_module = self.inner.create_shader_module(&create_info, None).unwrap();
-
-            ShaderModule {
-                device: self,
-                shader_module,
-                info: info.unwrap(),
-            }
-        }
-    }
-
-    pub unsafe fn create_image_view(
-        self: Arc<Self>,
-        image: vk::Image,
-        format: vk::Format,
-    ) -> VkResult<ImageView> {
-        let image_view_create_info = vk::ImageViewCreateInfo::default()
-            .view_type(vk::ImageViewType::TYPE_2D)
-            .format(format)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            })
-            .image(image);
-        let image_view = unsafe { self.inner.create_image_view(&image_view_create_info, None) };
-
-        image_view.map(|view| ImageView {
-            device: self,
-            inner: view,
-        })
-    }
-
-    pub fn queue_wait_idle(&self) {
-        unsafe {
-            self.inner.queue_wait_idle(self.queue).unwrap();
-        }
-    }
-}
-
-impl Drop for Device {
-    fn drop(&mut self) {
-        println!("Destroying Device");
-        unsafe {
-            self.inner.device_wait_idle().unwrap();
-            let allocator_handle = self.allocator.get_raw();
-            let allocator = vk_mem::Allocator::from_raw(allocator_handle);
-            drop(allocator);
-
-            self.inner.destroy_device(None);
-        }
-    }
-}
-
 impl Cull {
     fn to_vk(&self) -> (vk::CullModeFlags, vk::FrontFace) {
         match self {
@@ -171,12 +67,6 @@ impl SemaphoreRHI for TimelineSemaphore {
     fn wait(&mut self, value: u64) {
         todo!()
     }
-}
-
-pub struct ShaderIR {
-    module: Arc<ShaderModule>,
-    ty: ShaderStage,
-    entry: SStr,
 }
 
 pub struct ShaderIR2<'a> {

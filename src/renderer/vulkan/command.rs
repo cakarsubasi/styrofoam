@@ -2,7 +2,6 @@ use ash::VkResult;
 use ash::vk;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::sync::Weak;
 
 use super::*;
 use crate::renderer::shader::reflect::ShaderInfo;
@@ -43,38 +42,6 @@ impl Drop for Pipeline {
     }
 }
 
-pub struct ShaderModule {
-    pub(super) device: Arc<Device>,
-    pub(super) shader_module: vk::ShaderModule,
-    pub(super) info: Vec<ShaderInfo>,
-}
-
-impl Drop for ShaderModule {
-    fn drop(&mut self) {
-        unsafe {
-            self.device
-                .inner
-                .destroy_shader_module(self.shader_module, None);
-        }
-    }
-}
-
-pub struct ImageView {
-    pub(super) device: Arc<Device>,
-    pub(super) inner: vk::ImageView,
-    // image: Arc<vk::Image>, // Maybe Weak would be better?
-    // Or maybe a different representation would be better entirely
-    // like OwningView which owns the image
-}
-
-impl Drop for ImageView {
-    fn drop(&mut self) {
-        unsafe {
-            self.device.inner.destroy_image_view(self.inner, None);
-        }
-    }
-}
-
 pub(super) struct SemaphoreInfo {
     pub(super) semaphore: vk::Semaphore,
     pub(super) value: u64,
@@ -99,56 +66,6 @@ pub struct CommandBuffer {
     pub(super) layout_transition_queue: Vec<LayoutTransition>,
     // Presentation state
     pub(super) present: Option<PresentSubmitEtc>,
-}
-
-pub mod traits {
-
-    use super::*;
-
-    // This module exists for wankery and saving a few lines of code where it counts
-    pub unsafe trait ActiveCommandBuffer {
-        unsafe fn get_device(&self) -> &Device;
-
-        unsafe fn get_command_buffer(&self) -> vk::CommandBuffer;
-    }
-
-    pub trait DynamicRenderingCommands: ActiveCommandBuffer {
-        fn cmd_begin_rendering(&self, info: &vk::RenderingInfo) -> &Self {
-            unsafe {
-                self.get_device()
-                    .inner
-                    .cmd_begin_rendering(self.get_command_buffer(), info);
-            }
-            self
-        }
-
-        fn cmd_end_rendering(&self) -> &Self {
-            unsafe {
-                self.get_device()
-                    .inner
-                    .cmd_end_rendering(self.get_command_buffer());
-            }
-            self
-        }
-
-        fn cmd_set_scissor(&self, scissors: &[vk::Rect2D]) -> &Self {
-            unsafe {
-                self.get_device()
-                    .inner
-                    .cmd_set_scissor(self.get_command_buffer(), 0, scissors);
-            }
-            self
-        }
-
-        fn cmd_set_viewport(&self, viewports: &[vk::Viewport]) -> &Self {
-            unsafe {
-                self.get_device()
-                    .inner
-                    .cmd_set_viewport(self.get_command_buffer(), 0, viewports);
-            }
-            self
-        }
-    }
 }
 
 // Common helpers
