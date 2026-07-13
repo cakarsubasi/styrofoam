@@ -78,6 +78,7 @@ pub struct DeviceHandles {
     pub descriptor_heap: ext::descriptor_heap::Device,
     pub descriptor_heap_props: DescriptorHeapProps,
     pub extended_dynamic_state3: ext::extended_dynamic_state3::Device,
+    pub device_address_commands: khr::device_address_commands::Device,
 }
 
 struct CommandPool {
@@ -208,6 +209,9 @@ impl Device2 {
             let extended_dynamic_state3 =
                 ext::extended_dynamic_state3::Device::load(&instance.instance, &device);
 
+            let device_address_commands =
+                khr::device_address_commands::Device::load(&instance.instance, &device);
+
             let handles = Arc::new(DeviceHandles {
                 instance,
                 surface,
@@ -218,6 +222,7 @@ impl Device2 {
                 descriptor_heap: descriptor_heap_loader,
                 descriptor_heap_props: descriptor_heap_props.unwrap(),
                 extended_dynamic_state3,
+                device_address_commands,
             });
 
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();
@@ -847,8 +852,16 @@ enum GpuPtr2 {
 }
 
 impl GpuPtr2 {
-    pub(crate) fn null() -> Self {
+    pub fn null() -> Self {
         GpuPtr2::Ptr(u64::MAX)
+    }
+
+    pub fn data(&self) -> u64 {
+        match self {
+            GpuPtr2::Handle(msb, lsb) => ((*msb as u64) << 32) + *lsb as u64,
+            GpuPtr2::Ptr(addr) => *addr,
+            GpuPtr2::Swapchain(_) => panic!("Cannot get data of magic resource"),
+        }
     }
 }
 
