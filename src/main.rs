@@ -1,5 +1,5 @@
 use egui_winit::create_window;
-use renderer::renderer::Renderer;
+use renderer::renderer::{Renderer, UiData};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -23,6 +23,7 @@ struct App {
 
 struct AppContext {
     gui_context: egui_winit::State,
+    //ui_renderer: UiRenderer,
     window: winit::window::Window,
 }
 
@@ -58,6 +59,7 @@ impl ApplicationHandler for App {
             self.renderer = Some(renderer);
             self.app_context = Some(AppContext {
                 gui_context,
+                //ui_renderer: UiRenderer::new(),
                 window,
             });
         }
@@ -86,12 +88,28 @@ impl ApplicationHandler for App {
                     ui.label("hope this works");
                 });
 
+                let clipped_primitives =
+                    ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+                let textures_delta = full_output.textures_delta;
+
+                //app_context.ui_renderer.update(
+                //    UiData {
+                //        triangles: clipped_primitives,
+                //        textures: textures_delta,
+                //    },
+                //    renderer,
+                //);
+
                 if let Err(err) = renderer.request_redraw() {
                     // Window resized, minimized, etc.
                     eprintln!("{:?}", err);
                 } else {
                     app_context.window.request_redraw();
                 }
+
+                app_context
+                    .gui_context
+                    .handle_platform_output(&app_context.window, full_output.platform_output);
             }
             _ => {}
         }
