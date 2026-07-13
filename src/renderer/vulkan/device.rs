@@ -3,8 +3,6 @@ use std::cell::Cell;
 use std::ffi::CStr;
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
-use std::num::NonZero;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::Weak;
@@ -20,15 +18,11 @@ use vk_mem::Alloc;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
-use crate::renderer::shader::SlangModule;
-use crate::renderer::shader::reflect::ShaderInfo;
 use crate::renderer::vulkan::command::PipelineType;
 use crate::renderer::vulkan::command::PresentSubmitEtc;
 use crate::renderer::vulkan::command::SemaphoreInfo;
 use crate::renderer::vulkan::instance::DescriptorHeapProps;
 use crate::renderer::vulkan::instance::DeviceResult;
-use crate::renderer::vulkan::swapchain::NextFrame;
-use crate::util::str::SStr;
 
 use super::*;
 
@@ -174,23 +168,10 @@ impl OwnedQueue {
     }
 }
 
-struct ShaderCache {}
-
-impl ShaderCache {
-    fn new() -> Self {
-        Self {}
-    }
-}
-
 pub struct Device2 {
     handles: Arc<DeviceHandles>,
     // Inner reference should be Weak maybe?
     heap: Arc<RwLock<DescriptorHeap>>,
-    shader_cache: ShaderCache,
-    // Queues share their lifetime with the device
-    //graphics_queues: Option<Arc<OwnedQueue>>,
-    //compute_queues: Option<Arc<OwnedQueue>>,
-    //copy_queues: Option<Arc<OwnedQueue>>,
     swapchain: Option<Arc<Swapchain>>,
 }
 
@@ -239,20 +220,12 @@ impl Device2 {
                 extended_dynamic_state3,
             });
 
-            //let graphics_queues = OwnedQueue::new(&handles.inner, graphics_queue_index);
-            //let compute_queues = OwnedQueue::new(&handles.inner, compute_queue_index);
-            //let copy_queues = OwnedQueue::new(&handles.inner, transfer_queue_index);
-
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();
 
             let swapchain = Swapchain::new(Arc::clone(&handles)).unwrap();
             Self {
                 handles: handles,
                 heap: Arc::new(RwLock::new(descriptor_heap)),
-                shader_cache: ShaderCache::new(),
-                //graphics_queues: Some(Arc::new(graphics_queues)),
-                //compute_queues: Some(Arc::new(compute_queues)),
-                //copy_queues: Some(Arc::new(copy_queues)),
                 swapchain: Some(Arc::new(swapchain)),
             }
         }
@@ -279,7 +252,7 @@ impl DeviceRHI for Device2 {
     }
 
     fn create_image(&mut self, details: &ImageDesc) -> Self::GpuPtr {
-        todo!()
+        self.heap.write().unwrap().create_image(details)
     }
 
     fn with_mapping(&mut self, ptr: Self::GpuPtr, f: fn(&mut [u8])) {
@@ -695,6 +668,7 @@ enum HeapOwnedResource {
 pub struct DescriptorHeap {
     device: Arc<DeviceHandles>,
     resource_heap: Buffer,
+    sampler_heap: Buffer,
     heap_info: Vec<HeapOwnedResource>,
     dirty: Vec<u32>,
     free_list: Vec<u32>,
@@ -703,10 +677,26 @@ pub struct DescriptorHeap {
 
 impl DescriptorHeap {
     pub fn new(device: Arc<DeviceHandles>) -> VkResult<Self> {
+        eprintln!("heap props:\n{:?}", device.descriptor_heap_props);
+
         let descriptor_heap = &device.descriptor_heap;
         let resource_heap_size = device.descriptor_heap_props.max_resource_heap_size;
-        eprintln!("heap props:\n{:?}", device.descriptor_heap_props);
+        let sampler_heap_size = device.descriptor_heap_props.max_sampler_heap_size;
         let image_descriptor_size = device.descriptor_heap_props.image_descriptor_size;
+        let sampler_descriptor_size = device.descriptor_heap_props.sampler_descriptor_size;
+
+        let maximum_images = (resource_heap_size
+            - device
+                .descriptor_heap_props
+                .min_resource_heap_reserved_range)
+            / image_descriptor_size;
+
+        let maximum_samplers = (sampler_heap_size
+            - device.descriptor_heap_props.min_sampler_heap_reserved_range)
+            / sampler_descriptor_size;
+
+        eprintln!("Maximum images: {}", maximum_images);
+        eprintln!("Maximum samplers: {}", maximum_samplers);
 
         let resource_heap = Buffer::new(
             Arc::clone(&device),
@@ -716,12 +706,14 @@ impl DescriptorHeap {
                 usage: BufferUsage::DescriptorHeap,
             },
         )?;
-
-        let maximum_images = (resource_heap_size
-            - device
-                .descriptor_heap_props
-                .min_resource_heap_reserved_range)
-            / image_descriptor_size;
+        let sampler_heap = Buffer::new(
+            Arc::clone(&device),
+            &BufferDesc {
+                memory: Memory::Default,
+                size: sampler_heap_size,
+                usage: BufferUsage::DescriptorHeap,
+            },
+        )?;
 
         let heap_info = (0..maximum_images)
             .into_iter()
@@ -731,6 +723,7 @@ impl DescriptorHeap {
         Ok(Self {
             device,
             resource_heap,
+            sampler_heap,
             heap_info,
             dirty: vec![],
             free_list: vec![],
@@ -853,6 +846,12 @@ enum GpuPtr2 {
     Swapchain(u32),   // u32 -> SwapchainImage
 }
 
+impl GpuPtr2 {
+    pub(crate) fn null() -> Self {
+        GpuPtr2::Ptr(u64::MAX)
+    }
+}
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct GpuPtr {
@@ -864,17 +863,7 @@ impl GpuPtr {
     }
 }
 
-pub trait EasyAlloc {
-    fn create_buffer(&mut self, desc: &BufferDesc) -> GpuPtr;
-
-    fn create_image(&mut self, desc: &ImageDesc) -> GpuPtr;
-
-    fn with_mapping(&mut self, ptr: GpuPtr, f: impl Fn(&mut [u8]));
-
-    fn free(&mut self, ptr: GpuPtr);
-}
-
-impl EasyAlloc for DescriptorHeap {
+impl DescriptorHeap {
     fn create_buffer(&mut self, desc: &BufferDesc) -> GpuPtr {
         let buffer = Buffer::new(Arc::clone(&self.device), desc).unwrap();
 
@@ -1086,7 +1075,7 @@ impl Image {
             let image_info = vk::ImageCreateInfo::default()
                 //.flags()
                 .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::R8G8B8A8_SRGB)
+                .format(description.format)
                 .extent(vk::Extent3D {
                     width: description.dimensions[0],
                     height: description.dimensions[1],
