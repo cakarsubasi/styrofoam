@@ -7,11 +7,11 @@ use ash::vk;
 
 use crate::renderer::vulkan::device::DeviceHandles;
 
-pub struct Surface {
-    pub(super) inner: vk::SurfaceKHR,
+pub(super) struct Surface {
+    pub inner: vk::SurfaceKHR,
     //surface_format: vk::SurfaceFormatKHR,
     //surface_resolution: vk::Extent2D,
-    pub(super) surface_loader: khr::surface::Instance,
+    pub surface_loader: khr::surface::Instance,
 }
 
 impl Drop for Surface {
@@ -22,7 +22,7 @@ impl Drop for Surface {
     }
 }
 
-pub struct Swapchain {
+pub(super) struct Swapchain {
     device: Arc<DeviceHandles>,
     pub(super) swapchain: vk::SwapchainKHR,
 
@@ -35,7 +35,7 @@ pub struct Swapchain {
 }
 
 #[derive(Clone, Copy)]
-pub struct SwapchainImage {
+pub(super) struct SwapchainImage {
     pub(super) image: vk::Image,
     pub(super) view: vk::ImageView,
     pub(super) extent: vk::Extent2D,
@@ -220,8 +220,6 @@ impl Swapchain {
             let submit_semaphore = self.resources.submit_semaphores[image_idx as usize];
             let swapchain_image = self.resources.images[image_idx as usize];
 
-            let extent = self.swapchain_extent;
-
             let next_frame = NextFrame {
                 image: swapchain_image,
                 image_idx,
@@ -257,9 +255,9 @@ impl Drop for Swapchain {
     }
 }
 
-pub struct NextFrame {
-    pub(super) image: SwapchainImage,
-    pub(super) image_idx: u32,
-    pub(super) submit_wait: vk::Semaphore,
-    pub(super) submit_signal_present_wait: vk::Semaphore,
+pub(super) struct NextFrame {
+    pub image: SwapchainImage,
+    pub image_idx: u32,
+    pub submit_wait: vk::Semaphore,
+    pub submit_signal_present_wait: vk::Semaphore,
 }

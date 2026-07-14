@@ -11,25 +11,18 @@ use std::sync::Arc;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
-use crate::renderer::shader::Slangc;
-use crate::renderer::vulkan::debug::DebugName as _;
-use crate::renderer::vulkan::device::Device2;
-use crate::renderer::vulkan::device::GpuPtr;
-use crate::renderer::vulkan::device::QueueRef;
-use crate::renderer::vulkan::device::ShaderIR2;
-use crate::renderer::vulkan::device::TimelineSemaphore;
 use crate::renderer::vulkan::*;
 
 pub struct Renderer {
-    device: Device2,
-    graphics_queue: QueueRef,
+    device: Device,
+    graphics_queue: Queue,
     state: RenderState,
 }
 
 struct RenderState {
     frame_index: u64,
     render_data: RenderData,
-    frame_semaphore: TimelineSemaphore,
+    frame_semaphore: Semaphore,
 }
 
 impl RenderState {}
@@ -41,7 +34,7 @@ impl Renderer {
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Self {
-        let mut device_rhi = Device2::new_with_presentation(raw_display_handle, raw_window_handle);
+        let mut device_rhi = Device::new_with_presentation(raw_display_handle, raw_window_handle);
 
         let graphics_queue =
             device_rhi.create_queue(QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
@@ -97,17 +90,17 @@ pub struct RenderData {
     indices: GpuPtr,
 }
 
-fn setup_render_data(device: &mut Device2) -> RenderData {
+fn setup_render_data(device: &mut Device) -> RenderData {
     //let compiler = Slangc::new();
     //let shader = compiler
     //    .compile(Path::new("res/shaders/triangle.slang"))
     //    .unwrap();
     let text = include_bytes!("../../triangle.spv");
-    let vertex_ir = ShaderIR2 {
+    let vertex_ir = ShaderIR {
         bytes: text, //&shader.spirv.text,
         entry: c"triangle_vert",
     };
-    let frag_ir = ShaderIR2 {
+    let frag_ir = ShaderIR {
         bytes: text, //&shader.spirv.text,
         entry: c"triangle_frag",
     };

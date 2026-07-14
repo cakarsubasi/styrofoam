@@ -1,7 +1,7 @@
 use std::ffi::c_char;
 use std::mem::ManuallyDrop;
 
-use super::*;
+use super::swapchain::Surface;
 
 use ash::ext;
 use ash::khr;
@@ -12,7 +12,7 @@ use winit::raw_window_handle::RawWindowHandle;
 
 use super::debug::create_debug_messenger;
 
-pub struct Instance {
+pub(super) struct Instance {
     entry: ManuallyDrop<ash::Entry>,
     pub(super) instance: ash::Instance,
 
@@ -24,7 +24,7 @@ pub struct Instance {
 
 type QueueFamilyIndex = u32;
 
-pub struct DeviceResult {
+pub(super) struct DeviceResult {
     pub device: ash::Device,
     pub pdevice: vk::PhysicalDevice,
     pub graphics_queue_index: QueueFamilyIndex,

@@ -3,15 +3,14 @@ use ash::vk;
 use std::sync::Arc;
 use std::sync::RwLock;
 
+use super::device::DescriptorHeap;
+use super::device::DeviceHandles;
+use super::device::GpuPtr;
+use super::device::Semaphore;
+use super::swapchain::NextFrame;
 use super::*;
-use crate::renderer::shader::reflect::ShaderInfo;
-use crate::renderer::vulkan::device::DescriptorHeap;
-use crate::renderer::vulkan::device::DeviceHandles;
-use crate::renderer::vulkan::device::GpuPtr;
-use crate::renderer::vulkan::device::TimelineSemaphore;
-use crate::renderer::vulkan::swapchain::NextFrame;
 
-pub enum PipelineType {
+pub(crate) enum PipelineType {
     Graphics,
     Compute,
     RayTracing,
@@ -190,7 +189,7 @@ impl CommandBuffer {
 
 impl CommandRHI for CommandBuffer {
     type GpuPtr = GpuPtr;
-    type Semaphore = TimelineSemaphore;
+    type Semaphore = Semaphore;
     type Pipeline = super::Pipeline;
 
     fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
@@ -270,7 +269,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn gpu_dispatch(&mut self, data: PushData, dimensions: U32_3) {
+    fn gpu_dispatch(&mut self, data: PushData, dimensions: UVec3) {
         unsafe {
             self.push_data(data);
 
@@ -473,7 +472,7 @@ impl CommandRHI for CommandBuffer {
         todo!()
     }
 
-    fn draw_meshlets(&mut self, data: PushData, dimension: U32_3) {
+    fn draw_meshlets(&mut self, data: PushData, dimension: UVec3) {
         todo!()
     }
 
@@ -498,7 +497,7 @@ impl CommandRHI for CommandBuffer {
     }
 }
 
-pub struct LayoutTransition {
+pub(super) struct LayoutTransition {
     image: Framebuffer,
     new_layout: vk::ImageLayout,
     src_stage_mask: vk::PipelineStageFlags2,

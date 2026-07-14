@@ -1,25 +1,18 @@
 /// command pools, command buffers, pipeline creation, shaders
-pub mod command;
+mod command;
 /// Debug messenger and object naming
-pub mod debug;
+mod debug;
 /// The device handle and constructors for handles obtained from the device
-pub mod device;
+mod device;
 /// The instance handle and constructors for handles obtained from the instance
-pub mod instance;
-/// Image and buffer allocation, copying, memory mapping and related functionality
-//pub mod memory;
+mod instance;
 /// Swapchain, surface, and presentation related functionality
-pub mod swapchain;
-/// Fences and semaphores
-//pub mod sync;
-use std::path::Path;
+mod swapchain;
 
-use crate::renderer::vulkan::device::{GpuPtr, ShaderIR2};
 use crate::renderer::vulkan::swapchain::SwapchainImage;
 
 pub use self::command::{CommandBuffer, Pipeline};
-pub use self::instance::Instance;
-pub use self::swapchain::{Surface, Swapchain};
+pub use self::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
 
 #[derive(Debug)]
 pub enum Error {
@@ -141,7 +134,7 @@ pub struct BufferDesc {
 #[derive(Clone, Copy)]
 pub struct ImageDesc {
     pub ty: ash::vk::ImageType,
-    pub dimensions: U32_3,
+    pub dimensions: UVec3,
     pub mip_count: u32,
     pub layer_count: u32,
     pub sample_count: u32,
@@ -162,17 +155,7 @@ impl Default for ImageDesc {
     }
 }
 
-type U32_3 = [u32; 3];
-
-// Probably shouldn't have a public InstanceRHI and instead create a new instance with every device
-pub trait InstanceRHI {
-    type Device;
-    type RawWindowHandle;
-
-    fn create_device(&mut self) -> Self::Device;
-
-    fn create_device_with_presentation(&mut self, rwh: Self::RawWindowHandle) -> Self::Device;
-}
+type UVec3 = [u32; 3];
 
 pub enum QueueType {
     Graphics, // Graphics, Compute, and Copy
@@ -181,7 +164,6 @@ pub enum QueueType {
 }
 
 pub trait DeviceRHI {
-    //type ShaderText;
     type Pipeline;
     type Semaphore;
     type Queue: QueueRHI;
@@ -202,25 +184,19 @@ pub trait DeviceRHI {
     fn create_semaphore(&mut self, initial_value: u64) -> Self::Semaphore;
     fn wait_semaphores(&self, semaphores: &[Self::Semaphore], values: &[u64]);
 
-    fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR2) -> Self::Pipeline;
+    fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR) -> Self::Pipeline;
     fn create_graphics_pipeline(
         &mut self,
-        vertex_ir: &ShaderIR2,
-        fragment_ir: &ShaderIR2,
+        vertex_ir: &ShaderIR,
+        fragment_ir: &ShaderIR,
         description: &RasterDescription,
     ) -> Self::Pipeline;
     fn create_meshlet_pipeline(
         &mut self,
-        meshlet_ir: &ShaderIR2,
-        fragment_ir: &ShaderIR2,
+        meshlet_ir: &ShaderIR,
+        fragment_ir: &ShaderIR,
         description: &RasterDescription,
     ) -> Self::Pipeline;
-}
-
-pub trait ShaderCompilerRHI {
-    type ShaderText;
-
-    fn compile(&mut self, path: &Path) -> Vec<Self::ShaderText>;
 }
 
 pub trait QueueRHI {
@@ -256,11 +232,10 @@ pub trait CommandRHI {
     fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
 
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline);
-    // Can we just set these dynamically or do we need to create them in advance?
     fn set_depth_stencil_state(&mut self, state: DepthStencilState);
     fn set_blend_state(&mut self, state: BlendState);
 
-    fn gpu_dispatch(&mut self, data: PushData, dimensions: U32_3);
+    fn gpu_dispatch(&mut self, data: PushData, dimensions: UVec3);
     fn gpu_dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr);
 
     fn begin_render_pass(&mut self, desc: &RenderPassDescription);
@@ -275,6 +250,6 @@ pub trait CommandRHI {
     );
     // let's skip this one for now
     // fn draw_indexed_instanced_indirect_multi(&mut self, ...);
-    fn draw_meshlets(&mut self, data: PushData, dimension: U32_3);
+    fn draw_meshlets(&mut self, data: PushData, dimension: UVec3);
     fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr);
 }

@@ -24,6 +24,9 @@ use crate::renderer::vulkan::instance::DescriptorHeapProps;
 use crate::renderer::vulkan::instance::DeviceResult;
 use crate::renderer::vulkan::swapchain::NextFrame;
 
+use super::instance::Instance;
+use super::swapchain::{Surface, Swapchain};
+
 use super::*;
 
 impl Cull {
@@ -38,16 +41,16 @@ impl Cull {
 }
 
 #[repr(transparent)]
-pub struct TimelineSemaphore {
+pub struct Semaphore {
     pub(super) inner: vk::Semaphore,
 }
 
-pub struct ShaderIR2<'a> {
+pub struct ShaderIR<'a> {
     pub bytes: &'a [u8],
     pub entry: &'a CStr,
 }
 
-pub struct DeviceHandles {
+pub(super) struct DeviceHandles {
     pub instance: Instance,
     pub surface: Surface,
     pub inner: ash::Device,
@@ -110,14 +113,14 @@ impl CommandPool {
     }
 }
 
-struct OwnedQueue {
+struct QueuePool {
     family_index: u32,
-    queues: Vec<vk::Queue>,
+    queue: vk::Queue,
     queues_used: usize,
     command_pools: Vec<CommandPool>,
 }
 
-impl OwnedQueue {
+impl QueuePool {
     fn new(
         device: &ash::Device,
         queue_index: u32,
@@ -134,7 +137,7 @@ impl OwnedQueue {
 
             Self {
                 family_index: queue_index,
-                queues: vec![queue],
+                queue,
                 queues_used: 0,
                 command_pools: command_pools,
             }
@@ -142,14 +145,18 @@ impl OwnedQueue {
     }
 }
 
-pub struct Device2 {
+pub struct Device {
     handles: Arc<DeviceHandles>,
     // Inner reference should be Weak maybe?
     heap: Arc<RwLock<DescriptorHeap>>,
     swapchain: Option<Arc<RwLock<Swapchain>>>,
 }
 
-impl Device2 {
+impl Device {
+    pub fn new() -> Self {
+        todo!()
+    }
+
     pub fn new_with_presentation(
         display_handle: RawDisplayHandle,
         window_handle: RawWindowHandle,
@@ -214,15 +221,10 @@ impl Device2 {
     }
 }
 
-impl DeviceRHI for Device2 {
-    //type ShaderText = ShaderIR2<'a>;
-
+impl DeviceRHI for Device {
     type Pipeline = super::Pipeline;
-
-    type Semaphore = TimelineSemaphore;
-
-    type Queue = QueueRef;
-
+    type Semaphore = Semaphore;
+    type Queue = Queue;
     type GpuPtr = GpuPtr;
 
     fn create_buffer(&mut self, details: &BufferDesc) -> Self::GpuPtr {
@@ -248,11 +250,10 @@ impl DeviceRHI for Device2 {
         command_buffers_per_pool: u32,
     ) -> Self::Queue {
         match ty {
-            QueueType::Graphics => QueueRef {
+            QueueType::Graphics => Queue {
                 device: Arc::downgrade(&self.handles),
                 heap: Arc::downgrade(&self.heap),
-                idx: 0,
-                queue: OwnedQueue::new(&self.device(), 0, command_pools, command_buffers_per_pool),
+                queue: QueuePool::new(&self.device(), 0, command_pools, command_buffers_per_pool),
                 swapchain: self.swapchain.as_ref().map(|s| Arc::downgrade(&s)),
             },
             QueueType::Compute => todo!(),
@@ -292,7 +293,7 @@ impl DeviceRHI for Device2 {
         }
     }
 
-    fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR2) -> Self::Pipeline {
+    fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR) -> Self::Pipeline {
         let mut compute_shader =
             vk::ShaderModuleCreateInfo::default().code(bytemuck::cast_slice(compute_ir.bytes));
 
@@ -323,8 +324,8 @@ impl DeviceRHI for Device2 {
 
     fn create_graphics_pipeline(
         &mut self,
-        vertex_ir: &ShaderIR2,
-        fragment_ir: &ShaderIR2,
+        vertex_ir: &ShaderIR,
+        fragment_ir: &ShaderIR,
         description: &RasterDescription,
     ) -> Self::Pipeline {
         let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
@@ -440,23 +441,22 @@ impl DeviceRHI for Device2 {
 
     fn create_meshlet_pipeline(
         &mut self,
-        meshlet_ir: &ShaderIR2,
-        fragment_ir: &ShaderIR2,
+        meshlet_ir: &ShaderIR,
+        fragment_ir: &ShaderIR,
         description: &RasterDescription,
     ) -> Self::Pipeline {
         todo!()
     }
 }
 
-pub struct QueueRef {
+pub struct Queue {
     device: Weak<DeviceHandles>,
     heap: Weak<RwLock<DescriptorHeap>>,
-    idx: u32,
-    queue: OwnedQueue,
+    queue: QueuePool,
     swapchain: Option<Weak<RwLock<Swapchain>>>,
 }
 
-impl QueueRef {
+impl Queue {
     fn get_command_buffer(&mut self, command_pool: u32) -> vk::CommandBuffer {
         let queue = &self.queue; //.upgrade().unwrap();
         let command_pool = queue
@@ -570,7 +570,7 @@ impl QueueRef {
             let queue = &mut self.queue; // .upgrade().unwrap();
             device
                 .inner
-                .queue_submit2(queue.queues[self.idx as usize], &submits, vk::Fence::null())
+                .queue_submit2(queue.queue, &submits, vk::Fence::null())
                 .unwrap();
 
             // Store -1 to indicate command pool requires resetting
@@ -587,7 +587,7 @@ fn find_frame(cbs: &[CommandBuffer]) -> Option<(&CommandBuffer, &NextFrame)> {
         .find_map(|cb| cb.present.as_ref().and_then(|present| Some((cb, present))))
 }
 
-impl Drop for QueueRef {
+impl Drop for Queue {
     fn drop(&mut self) {
         let device = self.device.upgrade().unwrap();
 
@@ -599,7 +599,7 @@ impl Drop for QueueRef {
     }
 }
 
-impl QueueRHI for QueueRef {
+impl QueueRHI for Queue {
     type CommandBuffer = super::CommandBuffer;
 
     fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer {
@@ -652,7 +652,7 @@ impl QueueRHI for QueueRef {
             let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
             let mut swapchain = swapchain.write().unwrap();
 
-            let queue = self.queue.queues[self.idx as usize]; //.upgrade().unwrap().queues[self.idx as usize];
+            let queue = &self.queue;
 
             let swapchains = [swapchain.swapchain];
             let wait_semaphores = [frame.submit_signal_present_wait];
@@ -664,7 +664,7 @@ impl QueueRHI for QueueRef {
             unsafe {
                 let result = swapchain
                     .swapchain_loader
-                    .queue_present(queue, &present_info);
+                    .queue_present(queue.queue, &present_info);
                 if result.is_err() {
                     swapchain.recreate(); // if not ready, we will just try again next time
                 }
@@ -680,7 +680,7 @@ enum HeapOwnedResource {
     Empty,
 }
 
-pub struct DescriptorHeap {
+pub(super) struct DescriptorHeap {
     device: Arc<DeviceHandles>,
     resource_heap: Buffer,
     sampler_heap: Buffer,
@@ -865,6 +865,7 @@ impl Drop for DescriptorHeap {
     }
 }
 
+// TODO
 #[derive(Clone, Copy)]
 enum GpuPtr2 {
     Handle(u32, u32), // u32 -> Buffer | (u32, u32) -> Image
@@ -978,12 +979,12 @@ impl Memory {
     }
 }
 
-pub struct Buffer {
-    pub(super) device: Arc<DeviceHandles>,
-    pub(super) inner: vk::Buffer,
+pub(super) struct Buffer {
+    pub device: Arc<DeviceHandles>,
+    pub inner: vk::Buffer,
     allocation: vk_mem::Allocation,
     size: u64,
-    pub(super) ty: BufferUsage,
+    pub ty: BufferUsage,
 }
 
 impl Buffer {
