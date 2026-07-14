@@ -218,6 +218,12 @@ fn setup_render_data(device: &mut Device2) -> RenderData {
         usage: BufferUsage::Index,
     };
     let indices = device.create_buffer(&buffer_desc);
+    device.with_mapping(indices, |bytes| {
+        let indices: &mut [u32] = bytemuck::cast_slice_mut(bytes);
+        indices[0] = 0;
+        indices[1] = 1;
+        indices[2] = 2;
+    });
 
     RenderData { pipeline, indices }
 }
