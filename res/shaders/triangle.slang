@@ -16,7 +16,7 @@ struct VertexOutput {
 };
 
 [shader("vertex")]
-VertexOutput vertMain(uint vid : SV_VertexID) {
+VertexOutput triangle_vert(uint vid : SV_VertexID) {
     VertexOutput output;
     output.sv_position = float4(positions[vid], 0.0, 1.0);
     output.color = colors[vid];
@@ -24,6 +24,6 @@ VertexOutput vertMain(uint vid : SV_VertexID) {
 }
 
 [shader("fragment")]
-float4 fragMain(VertexOutput vert) {
+float4 triangle_frag(VertexOutput vert) {
     return float4(vert.color, 1.0);
 }

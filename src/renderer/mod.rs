@@ -34,24 +34,6 @@ struct RenderState {
 
 impl RenderState {}
 
-#[derive(Debug)]
-pub enum RendererError {
-    DeviceLost,
-    SurfaceLost,
-    SwapchainOutOfDate,
-    OtherError(vk::Result),
-}
-
-impl From<vk::Result> for RendererError {
-    fn from(value: vk::Result) -> Self {
-        match value {
-            vk::Result::ERROR_DEVICE_LOST => RendererError::DeviceLost,
-            vk::Result::ERROR_SURFACE_LOST_KHR => RendererError::SurfaceLost,
-            vk::Result::ERROR_OUT_OF_DATE_KHR => RendererError::SwapchainOutOfDate,
-            err => RendererError::OtherError(err),
-        }
-    }
-}
 const FRAMES_IN_FLIGHT: u64 = 2;
 
 impl Renderer {
@@ -76,7 +58,7 @@ impl Renderer {
         }
     }
 
-    pub fn request_redraw(&mut self) -> Result<(), RendererError> {
+    pub fn request_redraw(&mut self) -> Result<(), Error> {
         let render_data = &self.state.render_data;
         let next_frame = &mut self.state.frame_index;
         let command_pool = *next_frame % FRAMES_IN_FLIGHT;
@@ -89,16 +71,9 @@ impl Renderer {
         }
         let mut command_buffer = self
             .graphics_queue
-            .begin_recording_presentation(command_pool as u32, *next_frame);
+            .begin_recording_presentation(command_pool as u32, *next_frame)?;
 
-        command_buffer.begin_render_pass(&RenderPassDescription {
-            color_targets: vec![/*RenderTarget {
-                //image: Framebuffer::Swapchain(todo!()), // figure out how to pass swapchain image
-                ..Default::default()
-            }*/],
-            depth_target: None,
-            stencil_target: None,
-        });
+        command_buffer.begin_render_pass(&RenderPassDescription::default());
 
         command_buffer.set_pipeline(&render_data.pipeline);
         command_buffer.draw_indexed_instanced(&[], render_data.indices, 1);
@@ -111,79 +86,8 @@ impl Renderer {
             *next_frame,
         );
 
-        self.graphics_queue.submit_and_present(&command_buffer);
+        self.graphics_queue.submit_and_present(&command_buffer)?;
         *next_frame += 1;
-
-        //let result = self
-        //    .presentation_engine
-        //    .next_frame(self.state.frame_index)
-        //    .and_then(|presentation_context| {
-        //        presentation_context.submit_and_present(|command_buffer, render_target| {
-        //            let color_attachments = [vk::RenderingAttachmentInfo::default()
-        //                .image_view(render_target.color_image_view)
-        //                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-        //                .load_op(vk::AttachmentLoadOp::CLEAR)
-        //                .store_op(vk::AttachmentStoreOp::STORE)
-        //                .clear_value(vk::ClearValue {
-        //                    color: vk::ClearColorValue {
-        //                        float32: [0.0, 0.0, 0.0, 1.0],
-        //                    },
-        //                })];
-
-        //            let depth_attachment = vk::RenderingAttachmentInfo::default();
-        //            let stencil_attachment = vk::RenderingAttachmentInfo::default();
-
-        //            let rendering_info = vk::RenderingInfo::default()
-        //                .layer_count(1)
-        //                .view_mask(0)
-        //                .color_attachments(&color_attachments)
-        //                .depth_attachment(&depth_attachment)
-        //                .stencil_attachment(&stencil_attachment)
-        //                .render_area(vk::Rect2D {
-        //                    offset: vk::Offset2D::default(),
-        //                    extent: render_target.extent,
-        //                });
-
-        //            command_buffer.reset()?;
-
-        //            command_buffer.record(|command_buffer| {
-        //                command_buffer.transition_image_layout(
-        //                    render_target.color_image,
-        //                    vk::ImageLayout::UNDEFINED,
-        //                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        //                    vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-        //                    vk::AccessFlags2::empty(),
-        //                    vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-        //                    vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-        //                );
-        //                // TODO:
-        //                unsafe {
-        //                    self.descriptor_heap
-        //                        .bind(command_buffer.get_command_buffer());
-        //                }
-        //                command_buffer.transition_image_layout(
-        //                    render_target.color_image,
-        //                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-        //                    vk::ImageLayout::PRESENT_SRC_KHR,
-        //                    vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-        //                    vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-        //                    vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-        //                    vk::AccessFlags2::empty(),
-        //                );
-        //            })
-        //        })
-        //    });
-        //match result {
-        //    Ok(()) => Ok(()),
-        //    Err(vk::Result::SUBOPTIMAL_KHR) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-        //        if self.presentation_engine.recreate_swapchain().is_err() {
-        //            Err(RendererError::SwapchainOutOfDate)
-        //        } else {
-        //            Ok(())
-        //        }
-        //    }
-        //    Err(err) => Err(err.into()),
-        //}
         Ok(())
     }
 }
@@ -194,20 +98,22 @@ pub struct RenderData {
 }
 
 fn setup_render_data(device: &mut Device2) -> RenderData {
-    let compiler = Slangc::new();
-    let shader = compiler
-        .compile(Path::new("res/shaders/triangle.slang"))
-        .unwrap();
+    //let compiler = Slangc::new();
+    //let shader = compiler
+    //    .compile(Path::new("res/shaders/triangle.slang"))
+    //    .unwrap();
+    let text = include_bytes!("../../triangle.spv");
     let vertex_ir = ShaderIR2 {
-        bytes: &shader.spirv.text,
+        bytes: text, //&shader.spirv.text,
         entry: c"triangle_vert",
     };
     let frag_ir = ShaderIR2 {
-        bytes: &shader.spirv.text,
+        bytes: text, //&shader.spirv.text,
         entry: c"triangle_frag",
     };
     let description = RasterDescription {
         color_formats: &[vk::Format::R8G8B8A8_SRGB],
+        cull: Cull::NONE,
         ..Default::default()
     };
 
