@@ -1,9 +1,5 @@
 use std::ffi::c_char;
 use std::mem::ManuallyDrop;
-use std::sync::Arc;
-
-use crate::renderer::vulkan::device::DeviceExtensions;
-use crate::renderer::vulkan::device::ExtDescriptorHeap;
 
 use super::*;
 
@@ -215,8 +211,8 @@ impl Instance {
             khr::synchronization2::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors
             ext::descriptor_heap::NAME.as_ptr(), // replace descriptor indexing with heaps
-            khr::shader_untyped_pointers::NAME.as_ptr(), // Accessing shader resources without providing types
-            khr::device_address_commands::NAME.as_ptr(), // Replaces commands taking buffers with those taking pointers
+            //khr::shader_untyped_pointers::NAME.as_ptr(), // Accessing shader resources without providing types
+            //khr::device_address_commands::NAME.as_ptr(), // Replaces commands taking buffers with those taking pointers
             // Probably won't use this because of such narrow support
             // khr::unified_image_layouts::NAME.as_ptr(), // Eliminates need for most layout transitions. Poor support outside Nvidia.
             // ext::mesh_shader::NAME.as_ptr(), // mesh shaders, weeee

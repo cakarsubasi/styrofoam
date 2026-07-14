@@ -9,6 +9,7 @@ use crate::renderer::vulkan::device::DescriptorHeap;
 use crate::renderer::vulkan::device::DeviceHandles;
 use crate::renderer::vulkan::device::GpuPtr;
 use crate::renderer::vulkan::device::TimelineSemaphore;
+use crate::renderer::vulkan::swapchain::NextFrame;
 
 pub enum PipelineType {
     Graphics,
@@ -49,9 +50,7 @@ pub(super) struct SemaphoreInfo {
 }
 
 pub struct PresentSubmitEtc {
-    pub(super) image_idx: u32,
-    pub(super) swapchain_extent: vk::Extent2D,
-    pub(super) semaphore: vk::Semaphore,
+    pub(super) swapchain_image: NextFrame,
 }
 
 pub struct CommandBuffer {
@@ -89,7 +88,7 @@ impl CommandBuffer {
         }
     }
 
-    unsafe fn transition_image_layout(
+    pub(super) unsafe fn transition_image_layout(
         &self,
         image: vk::Image,
         old_layout: vk::ImageLayout,
@@ -126,7 +125,7 @@ impl CommandBuffer {
             .cmd_pipeline_barrier2(self.inner, &dependency_info);
     }
 
-    unsafe fn multiple_layout_transition(&self, transitions: &[LayoutTransition]) {
+    pub(super) unsafe fn multiple_layout_transition(&self, transitions: &[LayoutTransition]) {
         for transition in transitions {
             let LayoutTransition {
                 image,
@@ -146,8 +145,13 @@ impl CommandBuffer {
                     (image.inner, old_layout)
                 }
                 Framebuffer::Swapchain(swapchain_image) => {
-                    swapchain_image.image;
-                    todo!()
+                    let image = swapchain_image.image;
+                    let old_layout = if *new_layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
+                        vk::ImageLayout::UNDEFINED
+                    } else {
+                        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+                    };
+                    (image, old_layout)
                 }
             };
 
@@ -333,6 +337,29 @@ impl CommandRHI for CommandBuffer {
                         .image_view(image_view)
                 })
                 .collect();
+            let color_attachments = if let Some(ref presentation) = self.present {
+                let swapchain_view = presentation.swapchain_image.image.view;
+                self.layout_transition_queue.push(LayoutTransition {
+                    image: Framebuffer::Swapchain(presentation.swapchain_image.image),
+                    new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+                    src_access_mask: vk::AccessFlags2::empty(),
+                    dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                    dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                });
+                vec![
+                    vk::RenderingAttachmentInfo::default()
+                        .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                        .load_op(vk::AttachmentLoadOp::CLEAR)
+                        .store_op(vk::AttachmentStoreOp::STORE)
+                        .clear_value(vk::ClearValue {
+                            color: Default::default(),
+                        })
+                        .image_view(swapchain_view),
+                ]
+            } else {
+                color_attachments
+            };
 
             let depth_attachment = if let Some(ref target) = desc.depth_target {
                 let heap = self.heap.read().unwrap();
@@ -390,7 +417,7 @@ impl CommandRHI for CommandBuffer {
                 target.image.extent()
             } else {
                 // Swapchain extent
-                self.present.as_ref().unwrap().swapchain_extent
+                self.present.as_ref().unwrap().swapchain_image.image.extent
             };
             let rendering_info = vk::RenderingInfo::default()
                 .layer_count(1)
@@ -403,12 +430,12 @@ impl CommandRHI for CommandBuffer {
                     extent,
                 });
 
+            self.multiple_layout_transition(&self.layout_transition_queue);
+            self.layout_transition_queue.clear();
+
             self.device
                 .inner
                 .cmd_begin_rendering(self.inner, &rendering_info);
-
-            self.multiple_layout_transition(&self.layout_transition_queue);
-            self.layout_transition_queue.clear();
 
             //
             self.set_fixed_dynamic_states(extent);

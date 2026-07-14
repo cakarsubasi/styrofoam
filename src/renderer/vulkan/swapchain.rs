@@ -241,6 +241,18 @@ impl Drop for Swapchain {
         unsafe {
             self.device.inner.device_wait_idle().unwrap();
 
+            for semaphore in &self.resources.acquire_semaphores {
+                self.device.inner.destroy_semaphore(*semaphore, None);
+            }
+
+            for semaphore in &self.resources.submit_semaphores {
+                self.device.inner.destroy_semaphore(*semaphore, None);
+            }
+
+            for image in &self.resources.images {
+                self.device.inner.destroy_image_view(image.view, None);
+            }
+
             self.swapchain_loader
                 .destroy_swapchain(self.swapchain, None);
         }

@@ -18,6 +18,7 @@ use vk_mem::Alloc;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
+use crate::renderer::vulkan::command::LayoutTransition;
 use crate::renderer::vulkan::command::PipelineType;
 use crate::renderer::vulkan::command::PresentSubmitEtc;
 use crate::renderer::vulkan::command::SemaphoreInfo;
@@ -124,7 +125,7 @@ impl CommandPool {
         }
     }
 
-    fn destroy(self, device: &ash::Device) {
+    fn destroy(&self, device: &ash::Device) {
         unsafe {
             device.destroy_command_pool(self.command_pool, None);
         }
@@ -136,12 +137,6 @@ struct OwnedQueue {
     queues: Vec<vk::Queue>,
     queues_used: usize,
     command_pools: Vec<CommandPool>,
-}
-
-#[derive(Clone, Copy)]
-struct QueueInfo {
-    queue: vk::Queue,
-    family: u32,
 }
 
 impl OwnedQueue {
@@ -173,7 +168,7 @@ pub struct Device2 {
     handles: Arc<DeviceHandles>,
     // Inner reference should be Weak maybe?
     heap: Arc<RwLock<DescriptorHeap>>,
-    swapchain: Option<Arc<Swapchain>>,
+    swapchain: Option<Arc<RwLock<Swapchain>>>,
 }
 
 impl Device2 {
@@ -231,7 +226,7 @@ impl Device2 {
             Self {
                 handles: handles,
                 heap: Arc::new(RwLock::new(descriptor_heap)),
-                swapchain: Some(Arc::new(swapchain)),
+                swapchain: Some(Arc::new(RwLock::new(swapchain))),
             }
         }
     }
@@ -481,7 +476,7 @@ pub struct QueueRef {
     heap: Weak<RwLock<DescriptorHeap>>,
     idx: u32,
     queue: OwnedQueue,
-    swapchain: Option<Weak<Swapchain>>,
+    swapchain: Option<Weak<RwLock<Swapchain>>>,
     frames: u64,
 }
 
@@ -513,15 +508,16 @@ impl QueueRef {
         &mut self,
         command_pool: u32,
         frame_index: u64,
-    ) -> <Self as QueueRHI>::CommandBuffer {
-        let next_frame = self
-            .swapchain
-            .as_ref()
-            .unwrap()
-            .upgrade()
-            .unwrap()
-            .next_frame(frame_index)
-            .unwrap();
+    ) -> Result<<Self as QueueRHI>::CommandBuffer, Error> {
+        let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
+        let mut swapchain = swapchain.write().unwrap();
+        let next_frame = match swapchain.next_frame(frame_index) {
+            Ok(next_frame) => next_frame,
+            Err(err) => {
+                swapchain.recreate()?;
+                return Err(Error::SwapchainOutOfDate);
+            }
+        };
 
         let mut command_buffer = self.begin_recording(command_pool);
         command_buffer.signal.push(SemaphoreInfo {
@@ -535,33 +531,62 @@ impl QueueRef {
             stage: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
         });
         command_buffer.present = Some(PresentSubmitEtc {
-            image_idx: next_frame.image_idx,
-            semaphore: next_frame.submit_signal_present_wait,
-            swapchain_extent: next_frame.image.extent,
+            swapchain_image: next_frame,
         });
-        command_buffer
+        Ok(command_buffer)
     }
 
-    pub fn submit_and_present(&mut self, command_buffer: &<Self as QueueRHI>::CommandBuffer) {
+    pub fn submit_and_present(
+        &mut self,
+        command_buffer: &<Self as QueueRHI>::CommandBuffer,
+    ) -> Result<(), Error> {
         let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
-
-        self.submit(slice::from_ref(command_buffer));
-        let queue = self.queue.queues[self.idx as usize]; //.upgrade().unwrap().queues[self.idx as usize];
+        let mut swapchain = swapchain.write().unwrap();
 
         let frame = command_buffer.present.as_ref().unwrap();
 
+        unsafe {
+            command_buffer.transition_image_layout(
+                frame.swapchain_image.image.image,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::PRESENT_SRC_KHR,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                vk::AccessFlags2::empty(),
+            );
+        }
+
+        self.submit(slice::from_ref(command_buffer))?;
+        let queue = self.queue.queues[self.idx as usize]; //.upgrade().unwrap().queues[self.idx as usize];
+
         let swapchains = [swapchain.swapchain];
-        let wait_semaphores = [frame.semaphore];
-        let indices = [frame.image_idx];
+        let wait_semaphores = [frame.swapchain_image.submit_signal_present_wait];
+        let indices = [frame.swapchain_image.image_idx];
         let present_info = vk::PresentInfoKHR::default()
             .swapchains(&swapchains)
             .wait_semaphores(&wait_semaphores)
             .image_indices(&indices);
         unsafe {
-            swapchain
+            let result = swapchain
                 .swapchain_loader
-                .queue_present(queue, &present_info)
-                .unwrap(); // Must handle out of date
+                .queue_present(queue, &present_info);
+            if result.is_err() {
+                swapchain.recreate(); // if not ready, we will just try again next time
+            }
+            Ok(())
+        }
+    }
+}
+
+impl Drop for QueueRef {
+    fn drop(&mut self) {
+        let device = self.device.upgrade().unwrap();
+
+        unsafe {
+            for command_pool in &self.queue.command_pools {
+                command_pool.destroy(&device.inner)
+            }
         }
     }
 }
@@ -596,10 +621,10 @@ impl QueueRHI for QueueRef {
         }
     }
 
-    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) {
+    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
         unsafe {
             if command_buffers.is_empty() {
-                return;
+                return Ok(());
             }
 
             let device = self.device.upgrade().unwrap();
@@ -661,6 +686,7 @@ impl QueueRHI for QueueRef {
                 .used
                 .store(-1, Ordering::Release);
         }
+        Ok(())
     }
 }
 
@@ -823,6 +849,9 @@ impl DescriptorHeap {
                 })
                 .collect();
 
+            let sampler_info = vk::SamplerCreateInfo::default();
+
+            //descriptor_heap.write_sampler_descriptors(samplers, descriptors)
             descriptor_heap
                 .write_resource_descriptors(&resources, &descriptors)
                 .unwrap();
@@ -840,6 +869,14 @@ impl DescriptorHeap {
         match self.heap_info[ptr.inner as usize] {
             HeapOwnedResource::Image(ref image) => image,
             _ => panic!("Given pointer does not point to an image"),
+        }
+    }
+}
+
+impl Drop for DescriptorHeap {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.inner.device_wait_idle().unwrap();
         }
     }
 }

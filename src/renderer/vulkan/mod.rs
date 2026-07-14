@@ -21,6 +21,25 @@ pub use self::command::{CommandBuffer, Pipeline};
 pub use self::instance::Instance;
 pub use self::swapchain::{Surface, Swapchain, TargetFormat};
 
+#[derive(Debug)]
+pub enum Error {
+    DeviceLost,
+    SurfaceLost,
+    SwapchainOutOfDate,
+    OtherError(ash::vk::Result),
+}
+
+impl From<ash::vk::Result> for Error {
+    fn from(value: ash::vk::Result) -> Self {
+        match value {
+            ash::vk::Result::ERROR_DEVICE_LOST => Error::DeviceLost,
+            ash::vk::Result::ERROR_SURFACE_LOST_KHR => Error::SurfaceLost,
+            ash::vk::Result::ERROR_OUT_OF_DATE_KHR => Error::SwapchainOutOfDate,
+            err => Error::OtherError(err),
+        }
+    }
+}
+
 pub struct DepthStencilState {
     //mode: DepthFlags,
     pub depth_test: ash::vk::CompareOp,
@@ -64,8 +83,9 @@ impl Default for RenderTarget {
     }
 }
 
-pub struct RenderPassDescription {
-    pub color_targets: Vec<RenderTarget>,
+#[derive(Default)]
+pub struct RenderPassDescription<'a> {
+    pub color_targets: &'a [RenderTarget],
     pub depth_target: Option<RenderTarget>,
     pub stencil_target: Option<RenderTarget>,
 }
@@ -211,7 +231,7 @@ pub trait QueueRHI {
     type CommandBuffer: CommandRHI;
 
     fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer;
-    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]);
+    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error>;
 }
 
 pub type Stage = ash::vk::PipelineStageFlags2;
