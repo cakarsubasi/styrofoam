@@ -19,7 +19,7 @@ use crate::renderer::vulkan::swapchain::SwapchainImage;
 
 pub use self::command::{CommandBuffer, Pipeline};
 pub use self::instance::Instance;
-pub use self::swapchain::{Surface, Swapchain, TargetFormat};
+pub use self::swapchain::{Surface, Swapchain};
 
 #[derive(Debug)]
 pub enum Error {
@@ -183,7 +183,7 @@ pub enum QueueType {
 pub trait DeviceRHI {
     //type ShaderText;
     type Pipeline;
-    type Semaphore: SemaphoreRHI;
+    type Semaphore;
     type Queue: QueueRHI;
     type GpuPtr;
 
@@ -221,10 +221,6 @@ pub trait ShaderCompilerRHI {
     type ShaderText;
 
     fn compile(&mut self, path: &Path) -> Vec<Self::ShaderText>;
-}
-
-pub trait SemaphoreRHI {
-    fn wait(&mut self, value: u64);
 }
 
 pub trait QueueRHI {

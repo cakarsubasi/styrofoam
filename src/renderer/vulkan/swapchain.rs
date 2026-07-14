@@ -7,8 +7,6 @@ use ash::vk;
 
 use crate::renderer::vulkan::device::DeviceHandles;
 
-use super::*;
-
 pub struct Surface {
     pub(super) inner: vk::SurfaceKHR,
     //surface_format: vk::SurfaceFormatKHR,
@@ -264,21 +262,4 @@ pub struct NextFrame {
     pub(super) image_idx: u32,
     pub(super) submit_wait: vk::Semaphore,
     pub(super) submit_signal_present_wait: vk::Semaphore,
-}
-
-impl Swapchain {}
-
-pub struct RenderTarget<'a> {
-    swapchain: vk::SwapchainKHR,
-    swapchain_loader: &'a khr::swapchain::Device,
-    pub extent: vk::Extent2D,
-    image_idx: u32,
-    pub color_image: vk::Image,
-    pub color_image_view: vk::ImageView,
-}
-
-pub struct TargetFormat<'a> {
-    pub color: &'a [vk::Format],
-    pub depth: Option<vk::Format>,
-    pub stencil: Option<vk::Format>,
 }

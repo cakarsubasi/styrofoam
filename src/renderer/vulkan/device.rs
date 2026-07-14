@@ -18,29 +18,13 @@ use vk_mem::Alloc;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
-use crate::renderer::vulkan::command::LayoutTransition;
 use crate::renderer::vulkan::command::PipelineType;
-use crate::renderer::vulkan::command::PresentSubmitEtc;
 use crate::renderer::vulkan::command::SemaphoreInfo;
 use crate::renderer::vulkan::instance::DescriptorHeapProps;
 use crate::renderer::vulkan::instance::DeviceResult;
+use crate::renderer::vulkan::swapchain::NextFrame;
 
 use super::*;
-
-// We will cache stuff we check in instance creation and then use it as needed
-pub struct DeviceExtensions {
-    pub(super) descriptor_heap: Option<ExtDescriptorHeap>,
-    pub(super) extended_dynamic_state3: Option<ExtExtendedDynamicState3>,
-}
-
-pub struct ExtExtendedDynamicState3 {
-    pub(super) device: ext::extended_dynamic_state3::Device,
-}
-
-pub struct ExtDescriptorHeap {
-    pub(super) device: ext::descriptor_heap::Device,
-    pub(super) props: DescriptorHeapProps,
-}
 
 impl Cull {
     fn to_vk(&self) -> (vk::CullModeFlags, vk::FrontFace) {
@@ -56,12 +40,6 @@ impl Cull {
 #[repr(transparent)]
 pub struct TimelineSemaphore {
     pub(super) inner: vk::Semaphore,
-}
-
-impl SemaphoreRHI for TimelineSemaphore {
-    fn wait(&mut self, value: u64) {
-        todo!()
-    }
 }
 
 pub struct ShaderIR2<'a> {
@@ -276,7 +254,6 @@ impl DeviceRHI for Device2 {
                 idx: 0,
                 queue: OwnedQueue::new(&self.device(), 0, command_pools, command_buffers_per_pool),
                 swapchain: self.swapchain.as_ref().map(|s| Arc::downgrade(&s)),
-                frames: 0,
             },
             QueueType::Compute => todo!(),
             QueueType::Copy => todo!(),
@@ -477,7 +454,6 @@ pub struct QueueRef {
     idx: u32,
     queue: OwnedQueue,
     swapchain: Option<Weak<RwLock<Swapchain>>>,
-    frames: u64,
 }
 
 impl QueueRef {
@@ -530,98 +506,14 @@ impl QueueRef {
             value: 0,
             stage: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
         });
-        command_buffer.present = Some(PresentSubmitEtc {
-            swapchain_image: next_frame,
-        });
+        command_buffer.present = Some(next_frame);
         Ok(command_buffer)
     }
 
-    pub fn submit_and_present(
+    fn submit_impl(
         &mut self,
-        command_buffer: &<Self as QueueRHI>::CommandBuffer,
+        command_buffers: &[<Self as QueueRHI>::CommandBuffer],
     ) -> Result<(), Error> {
-        let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
-        let mut swapchain = swapchain.write().unwrap();
-
-        let frame = command_buffer.present.as_ref().unwrap();
-
-        unsafe {
-            command_buffer.transition_image_layout(
-                frame.swapchain_image.image.image,
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::ImageLayout::PRESENT_SRC_KHR,
-                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                vk::AccessFlags2::empty(),
-            );
-        }
-
-        self.submit(slice::from_ref(command_buffer))?;
-        let queue = self.queue.queues[self.idx as usize]; //.upgrade().unwrap().queues[self.idx as usize];
-
-        let swapchains = [swapchain.swapchain];
-        let wait_semaphores = [frame.swapchain_image.submit_signal_present_wait];
-        let indices = [frame.swapchain_image.image_idx];
-        let present_info = vk::PresentInfoKHR::default()
-            .swapchains(&swapchains)
-            .wait_semaphores(&wait_semaphores)
-            .image_indices(&indices);
-        unsafe {
-            let result = swapchain
-                .swapchain_loader
-                .queue_present(queue, &present_info);
-            if result.is_err() {
-                swapchain.recreate(); // if not ready, we will just try again next time
-            }
-            Ok(())
-        }
-    }
-}
-
-impl Drop for QueueRef {
-    fn drop(&mut self) {
-        let device = self.device.upgrade().unwrap();
-
-        unsafe {
-            for command_pool in &self.queue.command_pools {
-                command_pool.destroy(&device.inner)
-            }
-        }
-    }
-}
-
-impl QueueRHI for QueueRef {
-    type CommandBuffer = super::CommandBuffer;
-
-    fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer {
-        let command_buffer = self.get_command_buffer(command_pool);
-
-        let begin_info = &vk::CommandBufferBeginInfo::default()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-        unsafe {
-            // Good opportunity to handle device loss
-            let device = self.device.upgrade().unwrap();
-            device
-                .inner
-                .begin_command_buffer(command_buffer, begin_info)
-                .unwrap();
-
-            Self::CommandBuffer {
-                device,
-                heap: self.heap.upgrade().unwrap(),
-                inner: command_buffer,
-                command_pool_idx: command_pool,
-                signal: vec![],
-                wait: vec![],
-                layout_transition_queue: vec![],
-                present: None,
-            }
-        }
-    }
-
-    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
         unsafe {
             if command_buffers.is_empty() {
                 return Ok(());
@@ -685,6 +577,98 @@ impl QueueRHI for QueueRef {
             queue.command_pools[command_pool_idx as usize]
                 .used
                 .store(-1, Ordering::Release);
+        }
+        Ok(())
+    }
+}
+
+fn find_frame(cbs: &[CommandBuffer]) -> Option<(&CommandBuffer, &NextFrame)> {
+    cbs.iter()
+        .find_map(|cb| cb.present.as_ref().and_then(|present| Some((cb, present))))
+}
+
+impl Drop for QueueRef {
+    fn drop(&mut self) {
+        let device = self.device.upgrade().unwrap();
+
+        unsafe {
+            for command_pool in &self.queue.command_pools {
+                command_pool.destroy(&device.inner)
+            }
+        }
+    }
+}
+
+impl QueueRHI for QueueRef {
+    type CommandBuffer = super::CommandBuffer;
+
+    fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer {
+        let command_buffer = self.get_command_buffer(command_pool);
+
+        let begin_info = &vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        unsafe {
+            // Good opportunity to handle device loss
+            let device = self.device.upgrade().unwrap();
+            device
+                .inner
+                .begin_command_buffer(command_buffer, begin_info)
+                .unwrap();
+
+            Self::CommandBuffer {
+                device,
+                heap: self.heap.upgrade().unwrap(),
+                inner: command_buffer,
+                command_pool_idx: command_pool,
+                signal: vec![],
+                wait: vec![],
+                layout_transition_queue: vec![],
+                present: None,
+            }
+        }
+    }
+
+    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
+        let frame = find_frame(command_buffers);
+
+        if let Some((cb, frame)) = frame {
+            unsafe {
+                cb.transition_image_layout(
+                    frame.image.image,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    vk::ImageLayout::PRESENT_SRC_KHR,
+                    vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                    vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                    vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                    vk::AccessFlags2::empty(),
+                );
+            }
+        }
+
+        self.submit_impl(command_buffers)?;
+
+        if let Some((_, frame)) = frame {
+            let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
+            let mut swapchain = swapchain.write().unwrap();
+
+            let queue = self.queue.queues[self.idx as usize]; //.upgrade().unwrap().queues[self.idx as usize];
+
+            let swapchains = [swapchain.swapchain];
+            let wait_semaphores = [frame.submit_signal_present_wait];
+            let indices = [frame.image_idx];
+            let present_info = vk::PresentInfoKHR::default()
+                .swapchains(&swapchains)
+                .wait_semaphores(&wait_semaphores)
+                .image_indices(&indices);
+            unsafe {
+                let result = swapchain
+                    .swapchain_loader
+                    .queue_present(queue, &present_info);
+                if result.is_err() {
+                    swapchain.recreate(); // if not ready, we will just try again next time
+                }
+            }
         }
         Ok(())
     }

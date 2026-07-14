@@ -49,10 +49,6 @@ pub(super) struct SemaphoreInfo {
     pub(super) stage: Stage,
 }
 
-pub struct PresentSubmitEtc {
-    pub(super) swapchain_image: NextFrame,
-}
-
 pub struct CommandBuffer {
     // Handles
     pub(super) device: Arc<DeviceHandles>,
@@ -64,7 +60,7 @@ pub struct CommandBuffer {
     pub(super) signal: Vec<SemaphoreInfo>,
     pub(super) layout_transition_queue: Vec<LayoutTransition>,
     // Presentation state
-    pub(super) present: Option<PresentSubmitEtc>,
+    pub(super) present: Option<NextFrame>,
 }
 
 // Common helpers
@@ -338,9 +334,9 @@ impl CommandRHI for CommandBuffer {
                 })
                 .collect();
             let color_attachments = if let Some(ref presentation) = self.present {
-                let swapchain_view = presentation.swapchain_image.image.view;
+                let swapchain_view = presentation.image.view;
                 self.layout_transition_queue.push(LayoutTransition {
-                    image: Framebuffer::Swapchain(presentation.swapchain_image.image),
+                    image: Framebuffer::Swapchain(presentation.image),
                     new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                     src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
                     src_access_mask: vk::AccessFlags2::empty(),
@@ -417,7 +413,7 @@ impl CommandRHI for CommandBuffer {
                 target.image.extent()
             } else {
                 // Swapchain extent
-                self.present.as_ref().unwrap().swapchain_image.image.extent
+                self.present.as_ref().unwrap().image.extent
             };
             let rendering_info = vk::RenderingInfo::default()
                 .layer_count(1)

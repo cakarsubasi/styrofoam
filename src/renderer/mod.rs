@@ -86,7 +86,7 @@ impl Renderer {
             *next_frame,
         );
 
-        self.graphics_queue.submit_and_present(&command_buffer)?;
+        self.graphics_queue.submit(&[command_buffer])?;
         *next_frame += 1;
         Ok(())
     }
