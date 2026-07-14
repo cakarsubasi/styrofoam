@@ -249,7 +249,25 @@ impl CommandRHI for CommandBuffer {
     }
 
     fn set_blend_state(&mut self, state: BlendState) {
-        todo!()
+        unsafe {
+            let extended_dynamic_state3 = &self.device.extended_dynamic_state3;
+
+            extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
+
+            let color_blend_equation = vk::ColorBlendEquationEXT::default()
+                .src_color_blend_factor(state.src_color_factor)
+                .dst_color_blend_factor(state.dst_color_factor)
+                .color_blend_op(state.color_op)
+                .src_alpha_blend_factor(state.src_alpha_factor)
+                .dst_alpha_blend_factor(state.dst_alpha_factor)
+                .alpha_blend_op(state.alpha_op);
+
+            extended_dynamic_state3.cmd_set_color_blend_equation(
+                self.inner,
+                0,
+                &[color_blend_equation],
+            );
+        }
     }
 
     fn gpu_dispatch(&mut self, data: PushData, dimensions: U32_3) {
