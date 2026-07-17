@@ -1,0 +1,12 @@
+[package]
+name = "styro-viewer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+egui = "0.34.3"
+egui-winit = "0.34.3"
+image = "0.25.10"
+winit = "0.30.13"
+styro-rhi = { path = "../styro-rhi" }
+bytemuck = "1.25.1"

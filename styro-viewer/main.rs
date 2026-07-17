@@ -41,9 +41,8 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if !self.initialized {
             self.initialized = true;
-
             let gui_ctx = egui::Context::default();
-            let viewport_opts = egui::ViewportBuilder::default();
+            let viewport_opts = egui::ViewportBuilder::default(); // .with_inner_size([100.0, 100.0]);
             let window = create_window(&gui_ctx, &event_loop, &viewport_opts).unwrap();
 
             let raw_display_handle = event_loop
@@ -78,8 +77,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 let app_context = self.app_context.as_mut().unwrap();
-                let renderer = self.renderer.as_mut().unwrap();
-
+                let renderer = self.renderer.as_mut();
                 let new_input = app_context.gui_context.take_egui_input(&app_context.window);
 
                 let mut ctx = egui::Context::default();
@@ -100,9 +98,13 @@ impl ApplicationHandler for App {
                 //    renderer,
                 //);
 
-                if let Err(err) = renderer.request_redraw() {
-                    // Window resized, minimized, etc.
-                    eprintln!("{:?}", err);
+                if let Some(renderer) = renderer {
+                    if let Err(err) = renderer.request_redraw() {
+                        // Window resized, minimized, etc.
+                        eprintln!("{:?}", err);
+                    } else {
+                        app_context.window.request_redraw();
+                    }
                 } else {
                     app_context.window.request_redraw();
                 }

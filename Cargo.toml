@@ -1,17 +1,3 @@
-[package]
-name = "renderer"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-# 2026-05-20, required for bindings to Vulkan 1.4 and VK_EXT_descriptor_heap
-ash = { git = "https://github.com/ash-rs/ash.git", rev = "a9a1fb17e98a0cde146caada86200d809306200d" }
-ash-window = { git = "https://github.com/ash-rs/ash.git", rev = "a9a1fb17e98a0cde146caada86200d809306200d" }
-bytemuck = "1.25.0"
-egui = "0.34.3"
-egui-winit = "0.34.3"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
-# We also need to modify vk-mem so it uses the latest ash
-vk-mem = { path = "vk-mem-rs" }
-winit = "0.30.13"
+[workspace]
+resolver = "3"
+members = ["styro-rhi", "styro-viewer", "styro-shader-rhi"]
