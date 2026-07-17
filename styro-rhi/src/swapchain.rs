@@ -5,7 +5,7 @@ use ash::ext;
 use ash::khr;
 use ash::vk;
 
-use crate::renderer::vulkan::device::DeviceHandles;
+use super::device::DeviceHandles;
 
 pub(super) struct Surface {
     pub inner: vk::SurfaceKHR,

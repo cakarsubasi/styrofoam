@@ -7,8 +7,8 @@ use ash::ext;
 use ash::khr;
 use ash::vk;
 use ash::vk::TaggedStructure as _;
-use winit::raw_window_handle::RawDisplayHandle;
-use winit::raw_window_handle::RawWindowHandle;
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
 
 use super::debug::create_debug_messenger;
 

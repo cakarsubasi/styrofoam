@@ -16,15 +16,15 @@ use ash::ext;
 use ash::khr;
 use ash::vk;
 use ash::vk::TaggedStructure as _;
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
 use vk_mem::Alloc;
-use winit::raw_window_handle::RawDisplayHandle;
-use winit::raw_window_handle::RawWindowHandle;
 
-use crate::renderer::vulkan::command::PipelineType;
-use crate::renderer::vulkan::command::SemaphoreInfo;
-use crate::renderer::vulkan::instance::DescriptorHeapProps;
-use crate::renderer::vulkan::instance::DeviceResult;
-use crate::renderer::vulkan::swapchain::NextFrame;
+use super::command::PipelineType;
+use super::command::SemaphoreInfo;
+use super::instance::DescriptorHeapProps;
+use super::instance::DeviceResult;
+use super::swapchain::NextFrame;
 
 use super::instance::Instance;
 use super::swapchain::{Surface, Swapchain};
