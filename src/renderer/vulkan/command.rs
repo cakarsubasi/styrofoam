@@ -1,4 +1,3 @@
-use ash::VkResult;
 use ash::vk;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -189,8 +188,8 @@ impl CommandBuffer {
 
 impl CommandRHI for CommandBuffer {
     type GpuPtr = GpuPtr;
-    type Semaphore = Semaphore;
     type Pipeline = super::Pipeline;
+    type Semaphore = Semaphore;
 
     fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
         let heap = self.heap.read().unwrap();
@@ -217,6 +216,53 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
+    fn copy_to_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
+        todo!();
+    }
+
+    fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr) {
+        let heap = self.heap.read().unwrap();
+
+        let resource_heap = heap.ptr_to_buffer(resource_heap);
+        let sampler_heap = heap.ptr_to_buffer(sampler_heap);
+
+        let descriptor_heap = &self.device.descriptor_heap;
+        let props = &self.device.descriptor_heap_props;
+
+        unsafe {
+            let resource_addr = self.device.inner.get_buffer_device_address(
+                &vk::BufferDeviceAddressInfo::default().buffer(resource_heap.inner),
+            );
+
+            let resource_bind_info = vk::BindHeapInfoEXT::default()
+                .heap_range(
+                    vk::DeviceAddressRangeKHR::default()
+                        .address(resource_addr)
+                        .size(resource_heap.len()),
+                )
+                .reserved_range_offset(
+                    props.max_resource_heap_size - props.min_resource_heap_reserved_range,
+                )
+                .reserved_range_size(props.min_resource_heap_reserved_range);
+
+            descriptor_heap.cmd_bind_resource_heap(self.inner, &resource_bind_info);
+
+            let barriers = [vk::MemoryBarrier2::default()
+                .src_stage_mask(vk::PipelineStageFlags2::HOST)
+                .src_access_mask(vk::AccessFlags2::HOST_WRITE)
+                .dst_stage_mask(vk::PipelineStageFlags2::ALL_GRAPHICS)
+                .dst_access_mask(
+                    vk::AccessFlags2::RESOURCE_HEAP_READ_EXT
+                        | vk::AccessFlags2::SAMPLER_HEAP_READ_EXT,
+                )];
+
+            self.device.inner.cmd_pipeline_barrier2(
+                self.inner,
+                &vk::DependencyInfo::default().memory_barriers(&barriers),
+            );
+        }
+    }
+
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */) {
         unsafe {
             // A read after write indicates a true dependency which is the strictest
@@ -232,6 +278,22 @@ impl CommandRHI for CommandBuffer {
                 .inner
                 .cmd_pipeline_barrier2(self.inner, &dependency_info);
         }
+    }
+
+    fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64) {
+        self.signal.push(SemaphoreInfo {
+            semaphore: semaphore.inner,
+            value,
+            stage,
+        });
+    }
+
+    fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64) {
+        self.wait.push(SemaphoreInfo {
+            semaphore: semaphore.inner,
+            value,
+            stage,
+        });
     }
 
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline) {
@@ -478,22 +540,6 @@ impl CommandRHI for CommandBuffer {
 
     fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr) {
         todo!()
-    }
-
-    fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64) {
-        self.signal.push(SemaphoreInfo {
-            semaphore: semaphore.inner,
-            value,
-            stage,
-        });
-    }
-
-    fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64) {
-        self.wait.push(SemaphoreInfo {
-            semaphore: semaphore.inner,
-            value,
-            stage,
-        });
     }
 }
 

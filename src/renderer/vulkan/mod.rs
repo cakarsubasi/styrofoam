@@ -154,6 +154,16 @@ impl Default for ImageDesc {
         }
     }
 }
+pub struct SamplerDesc {
+    pub mag_filter: ash::vk::Filter,
+    pub min_filter: ash::vk::Filter,
+    pub mipmap_mode: ash::vk::SamplerMipmapMode,
+    pub address_mode: [ash::vk::SamplerAddressMode; 3],
+    pub anisotropy: f32,
+    pub lod_bias: f32,
+    pub lod_range: [f32; 2],
+    pub compare_op: Option<ash::vk::CompareOp>,
+}
 
 type UVec3 = [u32; 3];
 
@@ -171,8 +181,14 @@ pub trait DeviceRHI {
 
     fn create_buffer(&mut self, details: &BufferDesc) -> Self::GpuPtr;
     fn create_image(&mut self, details: &ImageDesc) -> Self::GpuPtr;
-    fn with_mapping(&mut self, ptr: Self::GpuPtr, f: fn(&mut [u8]));
+
+    fn buffer_host_ptr(&self, ptr: Self::GpuPtr) -> *mut u8;
+    fn buffer_device_ptr(&self, ptr: Self::GpuPtr) -> u64;
+
     fn delete_ptr(&mut self, ptr: Self::GpuPtr);
+
+    fn get_image_descriptor(&self, image: Self::GpuPtr) -> [u64; 4];
+    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> [u64; 4];
 
     fn create_queue(
         &mut self,
@@ -224,8 +240,10 @@ pub trait CommandRHI {
 
     fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
 
-    //fn copy_to_texture();
+    fn copy_to_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
     //fn copy_from_texture();
+
+    fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
     fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);

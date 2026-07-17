@@ -1,8 +1,10 @@
 use core::slice;
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
+use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::Weak;
@@ -51,9 +53,9 @@ pub struct ShaderIR<'a> {
 }
 
 pub(super) struct DeviceHandles {
-    pub instance: Instance,
     pub surface: Surface,
     pub inner: ash::Device,
+    pub instance: Instance,
     pub pdevice: vk::PhysicalDevice,
     pub allocator: ManuallyDrop<vk_mem::Allocator>,
     pub debug_utils: ext::debug_utils::Device,
@@ -61,6 +63,15 @@ pub(super) struct DeviceHandles {
     pub descriptor_heap_props: DescriptorHeapProps,
     pub extended_dynamic_state3: ext::extended_dynamic_state3::Device,
     pub device_address_commands: khr::device_address_commands::Device,
+}
+
+impl Drop for DeviceHandles {
+    fn drop(&mut self) {
+        unsafe {
+            ManuallyDrop::drop(&mut self.allocator);
+            self.inner.destroy_device(None);
+        }
+    }
 }
 
 struct CommandPool {
@@ -235,8 +246,26 @@ impl DeviceRHI for Device {
         self.heap.write().unwrap().create_image(details)
     }
 
-    fn with_mapping(&mut self, ptr: Self::GpuPtr, f: fn(&mut [u8])) {
-        self.heap.write().unwrap().with_mapping(ptr, f);
+    fn buffer_host_ptr(&self, ptr: Self::GpuPtr) -> *mut u8 {
+        let heap = self.heap.read().unwrap();
+
+        let buffer = heap.ptr_to_buffer(ptr);
+
+        // TODO: check alignment and size
+        unsafe { buffer.mapped_ptr.unwrap().byte_add(ptr.offset as usize) }
+    }
+
+    fn buffer_device_ptr(&self, ptr: Self::GpuPtr) -> u64 {
+        let heap = self.heap.read().unwrap();
+
+        let buffer = heap.ptr_to_buffer(ptr);
+
+        let info = vk::BufferDeviceAddressInfo::default().buffer(buffer.inner);
+        unsafe {
+            let addr = self.handles.inner.get_buffer_device_address(&info);
+            // TODO: check alignment and size
+            addr + (ptr.offset as u64)
+        }
     }
 
     fn delete_ptr(&mut self, ptr: Self::GpuPtr) {
@@ -446,6 +475,20 @@ impl DeviceRHI for Device {
         description: &RasterDescription,
     ) -> Self::Pipeline {
         todo!()
+    }
+
+    fn get_image_descriptor(&self, image: Self::GpuPtr) -> [u64; 4] {
+        let heap = self.heap.read().unwrap();
+        let descriptor = &mut [0u64; 4];
+        heap.write_image_descriptor(image, bytemuck::cast_slice_mut(descriptor));
+        *descriptor
+    }
+
+    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> [u64; 4] {
+        let heap = self.heap.read().unwrap();
+        let descriptor = &mut [0u64; 4];
+        heap.write_sampler_descriptor(desc, bytemuck::cast_slice_mut(descriptor));
+        *descriptor
     }
 }
 
@@ -681,13 +724,8 @@ enum HeapOwnedResource {
 }
 
 pub(super) struct DescriptorHeap {
+    allocations: HashMap<vk_mem::RawAllocationHandle, HeapOwnedResource>,
     device: Arc<DeviceHandles>,
-    resource_heap: Buffer,
-    sampler_heap: Buffer,
-    heap_info: Vec<HeapOwnedResource>,
-    dirty: Vec<u32>,
-    free_list: Vec<u32>,
-    next_free: u32,
 }
 
 impl DescriptorHeap {
@@ -713,146 +751,95 @@ impl DescriptorHeap {
         eprintln!("Maximum images: {}", maximum_images);
         eprintln!("Maximum samplers: {}", maximum_samplers);
 
-        let resource_heap = Buffer::new(
-            Arc::clone(&device),
-            &BufferDesc {
-                memory: Memory::Default,
-                size: resource_heap_size,
-                usage: BufferUsage::DescriptorHeap,
-            },
-        )?;
-        let sampler_heap = Buffer::new(
-            Arc::clone(&device),
-            &BufferDesc {
-                memory: Memory::Default,
-                size: sampler_heap_size,
-                usage: BufferUsage::DescriptorHeap,
-            },
-        )?;
-
-        let heap_info = (0..maximum_images)
-            .into_iter()
-            .map(|_| HeapOwnedResource::Empty)
-            .collect();
-
         Ok(Self {
             device,
-            resource_heap,
-            sampler_heap,
-            heap_info,
-            dirty: vec![],
-            free_list: vec![],
-            next_free: 0,
+            allocations: HashMap::new(),
         })
     }
 
-    // Hmmm, this binding can be performed one time per our command buffer
-    pub unsafe fn bind(&self, command_buffer: vk::CommandBuffer) {
+    fn write_sampler_descriptor(&self, desc: &SamplerDesc, addr: &mut [u8]) {
+        let device = &self.device;
+        let descriptor_heap = &device.descriptor_heap;
+
         unsafe {
-            let device = &self.resource_heap.device;
-            let descriptor_heap = &device.descriptor_heap;
-            let props = &device.descriptor_heap_props;
+            let descriptor = [vk::HostAddressRangeEXT::default().address(addr)];
 
-            let resource_addr = device.inner.get_buffer_device_address(
-                &vk::BufferDeviceAddressInfo::default().buffer(self.resource_heap.inner),
-            );
+            let samplers = [
+                vk::SamplerCreateInfo::default()
+                    .flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
+                    .mag_filter(vk::Filter::LINEAR) // Expose
+                    .min_filter(vk::Filter::LINEAR) // Expose
+                    .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+                    .address_mode_u(vk::SamplerAddressMode::REPEAT)
+                    .address_mode_v(vk::SamplerAddressMode::REPEAT)
+                    .address_mode_w(vk::SamplerAddressMode::REPEAT)
+                    .anisotropy_enable(true)
+                    .max_anisotropy(16.0)
+                    .mip_lod_bias(1.0)
+                    .min_lod(0.0)
+                    .max_lod(4.0)
+                    .compare_enable(false)
+                    .compare_op(vk::CompareOp::EQUAL)
+                    .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
+                    .unnormalized_coordinates(false), // don't support
+            ];
 
-            let resource_bind_info = vk::BindHeapInfoEXT::default()
-                .heap_range(
-                    vk::DeviceAddressRangeKHR::default()
-                        .address(resource_addr)
-                        .size(self.resource_heap.len()),
-                )
-                .reserved_range_offset(
-                    props.max_resource_heap_size - props.min_resource_heap_reserved_range,
-                )
-                .reserved_range_size(props.min_resource_heap_reserved_range);
-
-            descriptor_heap.cmd_bind_resource_heap(command_buffer, &resource_bind_info);
-
-            let barriers = [vk::MemoryBarrier2::default()
-                .src_stage_mask(vk::PipelineStageFlags2::HOST)
-                .src_access_mask(vk::AccessFlags2::HOST_WRITE)
-                .dst_stage_mask(vk::PipelineStageFlags2::ALL_GRAPHICS)
-                .dst_access_mask(
-                    vk::AccessFlags2::RESOURCE_HEAP_READ_EXT
-                        | vk::AccessFlags2::SAMPLER_HEAP_READ_EXT,
-                )];
-
-            device.inner.cmd_pipeline_barrier2(
-                command_buffer,
-                &vk::DependencyInfo::default().memory_barriers(&barriers),
-            );
+            descriptor_heap
+                .write_sampler_descriptors(&samplers, &descriptor)
+                .unwrap();
         }
     }
 
-    fn get_free_idx(&mut self) -> u32 {
-        if !self.free_list.is_empty() {
-            self.free_list.pop().unwrap()
-        } else {
-            let free_idx = self.next_free;
-            self.next_free += 1;
-            free_idx
-        }
-    }
+    fn write_image_descriptor(&self, image: GpuPtr, addr: &mut [u8]) {
+        let image = self.ptr_to_image(image);
 
-    fn update_heap(&mut self) {
         let device = &self.device;
         let descriptor_heap = &device.descriptor_heap;
         let props = &device.descriptor_heap_props;
-
-        let resources: Vec<_> =
-            self.dirty
-                .iter()
-                .map(|&idx| &self.heap_info[idx as usize])
-                .map(|desc| match desc {
-                    HeapOwnedResource::Buffer(buffer) => vk::ResourceDescriptorInfoEXT::default()
-                        .data(vk::ResourceDescriptorDataEXT {
-                            p_address_range: &unsafe { buffer.device_address_range() },
-                        })
-                        .ty(buffer.ty.descriptor_type()),
-                    HeapOwnedResource::Image(image) => vk::ResourceDescriptorInfoEXT::default()
-                        .data(vk::ResourceDescriptorDataEXT {
-                            p_image: &unsafe { vk::ImageDescriptorInfoEXT::default() }, // TODO
-                        }),
-                    HeapOwnedResource::Empty => panic!(),
-                })
-                .collect();
-
-        let desc_size = props.buffer_descriptor_size as usize;
-
-        self.resource_heap.with_mapping(|addr| unsafe {
-            let addr = addr.as_mut_ptr();
-            let descriptors: Vec<_> = self
-                .dirty
-                .iter()
-                .map(|&idx| vk::HostAddressRangeEXT {
-                    address: (addr.byte_add(idx as usize * desc_size)) as *mut c_void,
-                    size: desc_size,
-                    ..Default::default()
-                })
-                .collect();
-
-            let sampler_info = vk::SamplerCreateInfo::default();
-
-            //descriptor_heap.write_sampler_descriptors(samplers, descriptors)
+        unsafe {
+            let resource = [vk::ResourceDescriptorInfoEXT::default()
+                .ty(vk::DescriptorType::SAMPLED_IMAGE)
+                .data(vk::ResourceDescriptorDataEXT {
+                    p_image: &vk::ImageDescriptorInfoEXT {
+                        p_view: &vk::ImageViewCreateInfo::default()
+                            .view_type(image_type_to_image_view_type(image.desc.ty))
+                            .format(image.desc.format)
+                            .image(image.inner)
+                            .subresource_range(vk::ImageSubresourceRange {
+                                aspect_mask: vk::ImageAspectFlags::COLOR,
+                                base_mip_level: 0,
+                                level_count: image.desc.mip_count,
+                                base_array_layer: 0,
+                                layer_count: image.desc.layer_count,
+                            }),
+                        layout: vk::ImageLayout::GENERAL,
+                        ..Default::default()
+                    },
+                })];
+            let descriptor = [vk::HostAddressRangeEXT::default().address(addr)];
             descriptor_heap
-                .write_resource_descriptors(&resources, &descriptors)
+                .write_resource_descriptors(&resource, &descriptor)
                 .unwrap();
-        });
+        }
     }
 
     pub fn ptr_to_buffer(&self, ptr: GpuPtr) -> &Buffer {
-        match self.heap_info[ptr.inner as usize] {
-            HeapOwnedResource::Buffer(ref buffer) => buffer,
+        match self
+            .allocations
+            .get(&(ptr.addr as vk_mem::RawAllocationHandle))
+        {
+            Some(HeapOwnedResource::Buffer(buffer)) => buffer,
             _ => panic!(),
         }
     }
 
     pub fn ptr_to_image(&self, ptr: GpuPtr) -> &Image {
-        match self.heap_info[ptr.inner as usize] {
-            HeapOwnedResource::Image(ref image) => image,
-            _ => panic!("Given pointer does not point to an image"),
+        match self
+            .allocations
+            .get(&(ptr.addr as vk_mem::RawAllocationHandle))
+        {
+            Some(HeapOwnedResource::Image(image)) => image,
+            _ => panic!(),
         }
     }
 }
@@ -865,24 +852,12 @@ impl Drop for DescriptorHeap {
     }
 }
 
-// TODO
-#[derive(Clone, Copy)]
-enum GpuPtr2 {
-    Handle(u32, u32), // u32 -> Buffer | (u32, u32) -> Image
-    Ptr(u64),         // u64 -> DeviceAddress
-    Swapchain(u32),   // u32 -> SwapchainImage
-}
-
-impl GpuPtr2 {
+impl GpuPtr {
     pub fn null() -> Self {
-        GpuPtr2::Ptr(u64::MAX)
-    }
-
-    pub fn data(&self) -> u64 {
-        match self {
-            GpuPtr2::Handle(msb, lsb) => ((*msb as u64) << 32) + *lsb as u64,
-            GpuPtr2::Ptr(addr) => *addr,
-            GpuPtr2::Swapchain(_) => panic!("Cannot get data of magic resource"),
+        Self {
+            addr: null_mut(),
+            offset: 0,
+            size: 0,
         }
     }
 }
@@ -890,51 +865,52 @@ impl GpuPtr2 {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct GpuPtr {
-    inner: u32,
-}
-impl GpuPtr {
-    pub(crate) fn null() -> Self {
-        GpuPtr { inner: u32::MAX }
-    }
+    addr: *mut u8,
+    pub offset: u32,
+    pub size: u32,
 }
 
 impl DescriptorHeap {
     fn create_buffer(&mut self, desc: &BufferDesc) -> GpuPtr {
         let buffer = Buffer::new(Arc::clone(&self.device), desc).unwrap();
 
-        let free_idx = self.get_free_idx();
+        let raw = buffer.allocation.get_raw();
+        let size = buffer.size as u32;
+        self.allocations
+            .insert(raw, HeapOwnedResource::Buffer(buffer));
 
-        self.heap_info[free_idx as usize] = HeapOwnedResource::Buffer(buffer);
-
-        self.dirty.push(free_idx);
-
-        GpuPtr { inner: free_idx }
+        GpuPtr {
+            addr: raw as *mut u8,
+            offset: 0,
+            size,
+        }
     }
 
     fn create_image(&mut self, desc: &ImageDesc) -> GpuPtr {
         // TODO: use format
         let image = Image::new(Arc::clone(&self.device), desc);
 
-        let free_idx = self.get_free_idx();
+        let raw = image.allocation.get_raw();
 
-        self.heap_info[free_idx as usize] = HeapOwnedResource::Image(image);
+        let size = image.size as u32;
+        self.allocations
+            .insert(raw, HeapOwnedResource::Image(image));
 
-        self.dirty.push(free_idx);
-
-        GpuPtr { inner: free_idx }
-    }
-
-    fn with_mapping(&mut self, ptr: GpuPtr, f: impl Fn(&mut [u8])) {
-        if let HeapOwnedResource::Buffer(ref mut buffer) = self.heap_info[ptr.inner as usize] {
-            buffer.with_mapping(f);
-        } else {
-            panic!();
+        GpuPtr {
+            addr: raw as *mut u8,
+            offset: 0,
+            size,
         }
     }
 
     fn free(&mut self, ptr: GpuPtr) {
-        self.heap_info[ptr.inner as usize] = HeapOwnedResource::Empty;
-        self.free_list.push(ptr.inner);
+        let res = self
+            .allocations
+            .remove(&(ptr.addr as vk_mem::RawAllocationHandle));
+
+        if let None = res {
+            panic!("Double free.");
+        }
     }
 }
 
@@ -985,6 +961,7 @@ pub(super) struct Buffer {
     allocation: vk_mem::Allocation,
     size: u64,
     pub ty: BufferUsage,
+    mapped_ptr: Option<*mut u8>,
 }
 
 impl Buffer {
@@ -1001,15 +978,23 @@ impl Buffer {
 
             let allocation_info = desc.memory.vma_options();
 
-            let (buffer, allocation) = device
+            let (buffer, mut allocation) = device
                 .allocator
                 .create_buffer(&buffer_info, &allocation_info)?;
+
+            let mapped_ptr = if let Memory::DeviceOnly = desc.memory {
+                None
+            } else {
+                Some(device.allocator.map_memory(&mut allocation).unwrap())
+            };
+
             Ok(Self {
                 device,
                 inner: buffer,
                 allocation,
                 size: size,
                 ty: buffer_usage,
+                mapped_ptr,
             })
         }
     }
@@ -1074,6 +1059,10 @@ impl Drop for Buffer {
     fn drop(&mut self) {
         unsafe {
             println!("Destroying buffer");
+            if let Some(_) = self.mapped_ptr {
+                self.device.allocator.unmap_memory(&mut self.allocation);
+            }
+
             self.device
                 .allocator
                 .destroy_buffer(self.inner, &mut self.allocation);
@@ -1093,6 +1082,15 @@ impl ImageDesc {
     }
 }
 
+fn image_type_to_image_view_type(ty: vk::ImageType) -> vk::ImageViewType {
+    match ty {
+        vk::ImageType::TYPE_1D => vk::ImageViewType::TYPE_1D,
+        vk::ImageType::TYPE_2D => vk::ImageViewType::TYPE_2D,
+        vk::ImageType::TYPE_3D => vk::ImageViewType::TYPE_3D,
+        _ => unreachable!(),
+    }
+}
+
 pub struct Image {
     pub(super) device: Arc<DeviceHandles>,
     pub(super) inner: vk::Image,
@@ -1100,6 +1098,7 @@ pub struct Image {
     pub(super) view: Option<vk::ImageView>,
     pub(super) desc: ImageDesc,
     pub(super) current_layout: Cell<vk::ImageLayout>,
+    pub(super) size: usize,
 }
 
 impl Image {
@@ -1109,7 +1108,7 @@ impl Image {
             let layout = vk::ImageLayout::GENERAL;
             let image_info = vk::ImageCreateInfo::default()
                 //.flags()
-                .image_type(vk::ImageType::TYPE_2D)
+                .image_type(description.ty)
                 .format(description.format)
                 .extent(vk::Extent3D {
                     width: description.dimensions[0],
@@ -1125,6 +1124,7 @@ impl Image {
                 .initial_layout(layout)
             //.initial_layout(vk::ImageLayout::UNDEFINED);
                 ;
+
             let allocation_info = vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
                 //flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
@@ -1136,6 +1136,8 @@ impl Image {
                 .create_image(&image_info, &allocation_info)
                 .unwrap();
 
+            let memory_req = device.inner.get_image_memory_requirements(image);
+
             Self {
                 device,
                 inner: image,
@@ -1143,6 +1145,7 @@ impl Image {
                 view: None,
                 desc: description.clone(),
                 current_layout: Cell::new(layout),
+                size: memory_req.size as usize,
             }
         }
     }
