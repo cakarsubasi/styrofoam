@@ -14,6 +14,9 @@ use self::swapchain::SwapchainImage;
 pub use self::command::{CommandBuffer, Pipeline};
 pub use self::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
 
+/// Re-export ash just in case
+pub use ash;
+
 #[derive(Debug)]
 pub enum Error {
     DeviceLost,
