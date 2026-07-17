@@ -10,15 +10,15 @@ use std::{
     process::Command,
 };
 
-use crate::renderer::shader::reflect::SR;
+use self::reflect::SR;
 
 pub struct SlangModule {
-    pub(super) spirv: SpirvModule,
-    pub(super) reflection: Option<SR>,
+    pub spirv: SpirvModule,
+    pub reflection: Option<SR>,
 }
 
 pub struct SpirvModule {
-    pub(super) text: Vec<u8>,
+    pub text: Vec<u8>,
 }
 
 #[derive(Debug)]

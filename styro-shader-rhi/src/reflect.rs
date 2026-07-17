@@ -1,9 +1,8 @@
 #![allow(non_snake_case)]
-use ash::vk;
-use serde::Deserialize;
+use std::ffi::CString;
 
-use crate::util::str::{SStr, c_string};
-// Likely will need a lot of edits
+//use ash::vk;
+use serde::Deserialize;
 
 pub mod EntryPoint {
     use super::*;
@@ -101,18 +100,9 @@ pub enum ShaderStage {
     // Mesh,
 }
 
-impl From<ShaderStage> for vk::ShaderStageFlags {
-    fn from(shader_stage: ShaderStage) -> Self {
-        match shader_stage {
-            ShaderStage::Vertex => vk::ShaderStageFlags::VERTEX,
-            ShaderStage::Fragment => vk::ShaderStageFlags::FRAGMENT,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ShaderInfo {
-    pub entry_point: SStr,
+    pub entry_point: CString,
     pub stage: ShaderStage,
     // parameters will most likely be added in the future
     _hidden: (),
@@ -126,7 +116,7 @@ impl From<&SR> for Option<Vec<ShaderInfo>> {
                 .entryPoints
                 .iter()
                 .map(|entry_point| ShaderInfo {
-                    entry_point: c_string(entry_point.name.clone()),
+                    entry_point: CString::new(entry_point.name.clone()).unwrap(),
                     stage: entry_point.shader_stage(),
                     _hidden: (),
                 })
