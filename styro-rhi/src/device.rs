@@ -860,6 +860,10 @@ impl GpuPtr {
             size: 0,
         }
     }
+
+    pub fn is_null(&self) -> bool {
+        self.addr.is_null()
+    }
 }
 
 #[derive(Clone, Copy)]
