@@ -221,32 +221,64 @@ impl CommandRHI for CommandBuffer {
     }
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr) {
-        let heap = self.heap.read().unwrap();
+        let resource_heap_null = resource_heap.is_null();
+        let sampler_heap_null = sampler_heap.is_null();
 
-        let resource_heap = heap.ptr_to_buffer(resource_heap);
-        let sampler_heap = heap.ptr_to_buffer(sampler_heap);
+        let heap = self.heap.read().unwrap();
 
         let descriptor_heap = &self.device.descriptor_heap;
         let props = &self.device.descriptor_heap_props;
 
-        unsafe {
-            let resource_addr = self.device.inner.get_buffer_device_address(
-                &vk::BufferDeviceAddressInfo::default().buffer(resource_heap.inner),
-            );
+        if !resource_heap_null {
+            let resource_heap_buf = heap.ptr_to_buffer(resource_heap);
 
-            let resource_bind_info = vk::BindHeapInfoEXT::default()
+            let resource_addr = unsafe {
+                self.device.inner.get_buffer_device_address(
+                    &vk::BufferDeviceAddressInfo::default().buffer(resource_heap_buf.inner),
+                )
+            };
+
+            let resource_heap_size = resource_heap_buf.len();
+
+            let heap_bind_info = vk::BindHeapInfoEXT::default()
                 .heap_range(
                     vk::DeviceAddressRangeKHR::default()
                         .address(resource_addr)
-                        .size(resource_heap.len()),
+                        .size(resource_heap_size),
                 )
-                .reserved_range_offset(
-                    props.max_resource_heap_size - props.min_resource_heap_reserved_range,
-                )
+                .reserved_range_offset(resource_heap_size - props.min_resource_heap_reserved_range)
                 .reserved_range_size(props.min_resource_heap_reserved_range);
 
-            descriptor_heap.cmd_bind_resource_heap(self.inner, &resource_bind_info);
+            unsafe {
+                descriptor_heap.cmd_bind_resource_heap(self.inner, &heap_bind_info);
+            }
+        }
+        if !sampler_heap_null {
+            let sampler_heap_buf = heap.ptr_to_buffer(sampler_heap);
 
+            let sampler_addr = unsafe {
+                self.device.inner.get_buffer_device_address(
+                    &vk::BufferDeviceAddressInfo::default().buffer(sampler_heap_buf.inner),
+                )
+            };
+
+            let sampler_heap_size = sampler_heap_buf.len();
+
+            let heap_bind_info = vk::BindHeapInfoEXT::default()
+                .heap_range(
+                    vk::DeviceAddressRangeKHR::default()
+                        .address(sampler_addr)
+                        .size(sampler_heap_size),
+                )
+                .reserved_range_offset(sampler_heap_size - props.min_sampler_heap_reserved_range)
+                .reserved_range_size(props.min_sampler_heap_reserved_range);
+
+            unsafe {
+                descriptor_heap.cmd_bind_sampler_heap(self.inner, &heap_bind_info);
+            }
+        }
+
+        if !sampler_heap_null || !resource_heap_null {
             let barriers = [vk::MemoryBarrier2::default()
                 .src_stage_mask(vk::PipelineStageFlags2::HOST)
                 .src_access_mask(vk::AccessFlags2::HOST_WRITE)
@@ -256,10 +288,12 @@ impl CommandRHI for CommandBuffer {
                         | vk::AccessFlags2::SAMPLER_HEAP_READ_EXT,
                 )];
 
-            self.device.inner.cmd_pipeline_barrier2(
-                self.inner,
-                &vk::DependencyInfo::default().memory_barriers(&barriers),
-            );
+            unsafe {
+                self.device.inner.cmd_pipeline_barrier2(
+                    self.inner,
+                    &vk::DependencyInfo::default().memory_barriers(&barriers),
+                );
+            }
         }
     }
 
