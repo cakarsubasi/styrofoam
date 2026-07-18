@@ -515,9 +515,17 @@ impl CommandRHI for CommandBuffer {
             let index_type = vk::IndexType::UINT32; // Might add support for other index types with some metadata later
             let index_count = index_buffer.len() / 4;
 
-            self.device
-                .inner
-                .cmd_bind_index_buffer(self.inner, index_buffer.inner, 0, index_type);
+            // TODO: size checks
+            let offset = indices.offset;
+            let size = indices.size;
+
+            self.device.inner.cmd_bind_index_buffer2(
+                self.inner,
+                index_buffer.inner,
+                offset as u64,
+                size as u64,
+                index_type,
+            );
 
             self.device
                 .inner
