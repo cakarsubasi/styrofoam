@@ -12,8 +12,8 @@ use super::*;
 pub(crate) enum PipelineType {
     Graphics,
     Compute,
-    RayTracing,
-    Mesh,
+    //RayTracing,
+    //Mesh,
 }
 
 impl PipelineType {
@@ -21,8 +21,8 @@ impl PipelineType {
         match self {
             PipelineType::Graphics => vk::PipelineBindPoint::GRAPHICS,
             PipelineType::Compute => vk::PipelineBindPoint::COMPUTE,
-            PipelineType::RayTracing => vk::PipelineBindPoint::RAY_TRACING_KHR,
-            PipelineType::Mesh => vk::PipelineBindPoint::GRAPHICS,
+            //PipelineType::RayTracing => vk::PipelineBindPoint::RAY_TRACING_KHR,
+            //PipelineType::Mesh => vk::PipelineBindPoint::GRAPHICS,
         }
     }
 }
@@ -114,9 +114,11 @@ impl CommandBuffer {
 
         let dependency_info =
             vk::DependencyInfo::default().image_memory_barriers(&image_memory_barrier);
-        self.device
-            .inner
-            .cmd_pipeline_barrier2(self.inner, &dependency_info);
+        unsafe {
+            self.device
+                .inner
+                .cmd_pipeline_barrier2(self.inner, &dependency_info);
+        }
     }
 
     pub(super) unsafe fn multiple_layout_transition(&self, transitions: &[LayoutTransition]) {
@@ -130,6 +132,7 @@ impl CommandBuffer {
                 dst_access_mask,
             } = transition;
 
+            // TODO: yeet the Framebuffer thing, and emit a single barrier command
             let (image, old_layout) = match image {
                 Framebuffer::Image(gpu_ptr) => {
                     let guard = self.heap.read().unwrap();
@@ -149,15 +152,17 @@ impl CommandBuffer {
                 }
             };
 
-            self.transition_image_layout(
-                image,
-                old_layout,
-                *new_layout,
-                *src_stage_mask,
-                *src_access_mask,
-                *dst_stage_mask,
-                *dst_access_mask,
-            );
+            unsafe {
+                self.transition_image_layout(
+                    image,
+                    old_layout,
+                    *new_layout,
+                    *src_stage_mask,
+                    *src_access_mask,
+                    *dst_stage_mask,
+                    *dst_access_mask,
+                );
+            }
         }
     }
 
@@ -216,7 +221,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_to_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
+    fn copy_to_texture(&mut self, _dst: Self::GpuPtr, _src: Self::GpuPtr) {
         todo!();
     }
 
@@ -339,7 +344,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_depth_stencil_state(&mut self, state: DepthStencilState) {
+    fn set_depth_stencil_state(&mut self, _state: DepthStencilState) {
         todo!()
     }
 
@@ -569,18 +574,18 @@ impl CommandRHI for CommandBuffer {
 
     fn draw_indexed_instanced_indirect(
         &mut self,
-        data: PushData,
-        indices: Self::GpuPtr,
-        indirect: Self::GpuPtr,
+        _data: PushData,
+        _indices: Self::GpuPtr,
+        _indirect: Self::GpuPtr,
     ) {
         todo!()
     }
 
-    fn draw_meshlets(&mut self, data: PushData, dimension: UVec3) {
+    fn draw_meshlets(&mut self, _data: PushData, _dimension: UVec3) {
         todo!()
     }
 
-    fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr) {
+    fn draw_meshlets_indirect(&mut self, _data: PushData, _dim_data: Self::GpuPtr) {
         todo!()
     }
 }
