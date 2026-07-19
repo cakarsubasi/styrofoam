@@ -1,5 +1,6 @@
 use ash::vk;
 use core::slice;
+use std::fs::File;
 use styro_rhi::BufferDesc;
 use styro_rhi::BufferUsage;
 use styro_rhi::CommandBuffer;
@@ -10,6 +11,7 @@ use styro_rhi::DeviceRHI;
 use styro_rhi::Error;
 use styro_rhi::GpuPtr;
 use styro_rhi::ImageDesc;
+use styro_rhi::ImageDescriptor;
 use styro_rhi::Memory;
 use styro_rhi::Pipeline;
 use styro_rhi::Queue;
@@ -17,9 +19,13 @@ use styro_rhi::QueueRHI;
 use styro_rhi::QueueType;
 use styro_rhi::RasterDescription;
 use styro_rhi::RenderPassDescription;
+use styro_rhi::SamplerDesc;
+use styro_rhi::SamplerDescriptor;
 use styro_rhi::Semaphore;
 use styro_rhi::ShaderIR;
+use styro_rhi::Stage;
 use styro_rhi::ash;
+use styro_rhi::read_spv;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
@@ -31,7 +37,7 @@ pub struct Renderer {
 
 struct RenderState {
     frame_index: u64,
-    render_data: TriangleRenderData,
+    render_data: TextureRenderData,
     frame_semaphore: Semaphore,
 }
 
@@ -49,8 +55,8 @@ impl Renderer {
         let graphics_queue =
             device_rhi.create_queue(QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
         let frame_semaphore = device_rhi.create_semaphore(0);
-        let render_data = TriangleRenderData::new(&mut device_rhi);
-        UiDataGpu::new(&mut device_rhi);
+        let render_data = TextureRenderData::new(&mut device_rhi);
+        //UiDataGpu::new(&mut device_rhi);
         Self {
             device: device_rhi,
             state: RenderState {
@@ -77,11 +83,11 @@ impl Renderer {
             .graphics_queue
             .begin_recording_presentation(command_pool as u32, *next_frame)?;
 
-        command_buffer.begin_render_pass(&RenderPassDescription::default());
+        if *next_frame == 1 {
+            render_data.upload(&mut self.device, &mut command_buffer);
+        }
 
         render_data.draw(&mut command_buffer);
-
-        command_buffer.end_render_pass();
 
         command_buffer.signal_after(
             vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
@@ -102,17 +108,14 @@ pub struct TriangleRenderData {
 
 impl TriangleRenderData {
     fn new(device: &mut Device) -> Self {
-        //let compiler = Slangc::new();
-        //let shader = compiler
-        //    .compile(Path::new("res/shaders/triangle.slang"))
-        //    .unwrap();
-        let text = include_bytes!("../../../triangle.spv");
+        let mut spv = File::open("../../../triangle.spv").unwrap();
+        let text = read_spv(&mut spv).unwrap();
         let vertex_ir = ShaderIR {
-            bytes: text, //&shader.spirv.text,
+            bytes: &text,
             entry: c"triangle_vert",
         };
         let frag_ir = ShaderIR {
-            bytes: text, //&shader.spirv.text,
+            bytes: &text,
             entry: c"triangle_frag",
         };
         let description = RasterDescription {
@@ -124,42 +127,51 @@ impl TriangleRenderData {
         let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
         let buffer_desc = BufferDesc {
             memory: Memory::Default,
-            size: 4 * 3,
+            size: 4 * 6,
             usage: BufferUsage::Index,
         };
         let indices = device.create_buffer(&buffer_desc);
         let indices_mapped = device.buffer_host_ptr(indices) as *mut u32;
         unsafe {
-            let slice = slice::from_raw_parts_mut(indices_mapped, 3);
+            let slice = slice::from_raw_parts_mut(indices_mapped, 6);
             slice[0] = 0;
             slice[1] = 1;
             slice[2] = 2;
+            slice[3] = 0;
+            slice[4] = 2;
+            slice[5] = 3;
         }
 
         TriangleRenderData { pipeline, indices }
     }
 
     fn draw(&self, command_buffer: &mut CommandBuffer) {
+        command_buffer.begin_render_pass(&Default::default());
         command_buffer.set_pipeline(&self.pipeline);
         command_buffer.draw_indexed_instanced(&[], self.indices, 1);
+        command_buffer.end_render_pass();
     }
 }
 
 pub struct TextureRenderData {
     pipeline: Pipeline,
     indices: GpuPtr,
+    staging_buffer: GpuPtr,
     texture: GpuPtr,
+    resource_heap: GpuPtr,
+    sampler_heap: GpuPtr,
 }
 
 impl TextureRenderData {
     fn new(device: &mut Device) -> Self {
-        let text = include_bytes!("../../../texture.spv");
+        let mut spv = File::open("texture.spv").unwrap();
+        let text = read_spv(&mut spv).unwrap();
         let vertex_ir = ShaderIR {
-            bytes: text, //&shader.spirv.text,
+            bytes: &text,
             entry: c"vertMain",
         };
         let frag_ir = ShaderIR {
-            bytes: text, //&shader.spirv.text,
+            bytes: &text,
             entry: c"fragMain",
         };
         let description = RasterDescription {
@@ -171,16 +183,20 @@ impl TextureRenderData {
         let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
         let buffer_desc = BufferDesc {
             memory: Memory::Default,
-            size: 4 * 3,
+            size: 4 * 6,
             usage: BufferUsage::Index,
         };
         let indices = device.create_buffer(&buffer_desc);
         let indices_mapped = device.buffer_host_ptr(indices) as *mut u32;
         unsafe {
             let slice = slice::from_raw_parts_mut(indices_mapped, 3);
+            let slice = slice::from_raw_parts_mut(indices_mapped, 6);
             slice[0] = 0;
             slice[1] = 1;
             slice[2] = 2;
+            slice[3] = 0;
+            slice[4] = 2;
+            slice[5] = 3;
         }
 
         let image_bytes = include_bytes!("../../../res/images/rust.png");
@@ -188,30 +204,119 @@ impl TextureRenderData {
             image::load_from_memory_with_format(image_bytes, image::ImageFormat::Png).unwrap();
         let image = image.to_rgba8();
         let dimensions = image.dimensions();
+
         let image_ptr = device.create_image(&ImageDesc {
             dimensions: [dimensions.0, dimensions.1, 1],
-            format: vk::Format::R8G8B8A8_SRGB,
+            format: vk::Format::R8G8B8A8_UNORM,
             ..Default::default()
         });
-
-        for pixel in image.iter() {
-            todo!();
+        let staging_buffer = device.create_buffer(&BufferDesc {
+            memory: Memory::Default,
+            size: image_ptr.size as u64,
+            usage: BufferUsage::Storage,
+        });
+        unsafe {
+            let ptr = device.buffer_host_ptr(staging_buffer);
+            let image = image.iter().as_slice();
+            let slice = slice::from_raw_parts_mut(ptr, staging_buffer.size as usize);
+            slice[0..image.len()].copy_from_slice(image);
         }
 
-        //device.with_mapping(image_ptr, |mapped| {
-        //    for (dst, src) in mapped.iter_mut().zip(image.iter()) {
-        //        *dst = *src;
-        //    }
-        //});
+        let heap_props = device.get_descriptor_heap_properties();
 
-        //Self { pipeline, indices }
-        //
-        todo!()
+        let mut resource_heap = device.create_buffer(&BufferDesc {
+            memory: Memory::Default,
+            size: heap_props.max_resource_heap_size,
+            usage: BufferUsage::DescriptorHeap,
+        });
+        let mut sampler_heap = device.create_buffer(&BufferDesc {
+            memory: Memory::Default,
+            size: heap_props.max_sampler_heap_size,
+            usage: BufferUsage::DescriptorHeap,
+        });
+
+        //let image_descriptor = device.get_image_descriptor(image_ptr);
+        let sampler_descriptor = device.get_sampler_descriptor(&SamplerDesc {
+            ..Default::default()
+        });
+        unsafe {
+            let resource_heap_ptr = device.buffer_host_ptr(resource_heap);
+            let offset = resource_heap_ptr.align_offset(32);
+            resource_heap.offset = offset as u32;
+            resource_heap.size -= offset as u32;
+
+            let sampler_heap_ptr = device.buffer_host_ptr(sampler_heap);
+            let offset = sampler_heap_ptr.align_offset(32);
+            sampler_heap.offset = offset as u32;
+            sampler_heap.size -= offset as u32;
+            let sampler_slice = slice::from_raw_parts_mut(
+                sampler_heap_ptr.byte_add(offset),
+                (sampler_heap.size as usize) / 32 * 32,
+            );
+            let sampler_slice: &mut [SamplerDescriptor] = bytemuck::cast_slice_mut(sampler_slice);
+            sampler_slice[0] = sampler_descriptor;
+        }
+
+        Self {
+            pipeline,
+            indices,
+            staging_buffer,
+            texture: image_ptr,
+            resource_heap,
+            sampler_heap,
+        }
+    }
+
+    fn upload(&self, device: &mut Device, command_buffer: &mut CommandBuffer) {
+        // command_buffer.image_barrier(
+        //     Stage::HOST,
+        //     Stage::TRANSFER,
+        //     self.texture,
+        //     vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        // );
+        command_buffer.copy_to_texture(self.texture, self.staging_buffer);
+        let mut resource_heap = self.resource_heap;
+        let image_descriptor = device.get_image_descriptor(self.texture);
+        unsafe {
+            let resource_heap_ptr = device.buffer_host_ptr(resource_heap);
+            let offset = resource_heap_ptr.align_offset(32);
+            resource_heap.offset = offset as u32;
+            resource_heap.size -= offset as u32;
+            let resource_slice = slice::from_raw_parts_mut(
+                resource_heap_ptr.byte_add(offset),
+                (resource_heap.size as usize) / 32 * 32,
+            );
+            let resource_slice: &mut [ImageDescriptor] = bytemuck::cast_slice_mut(resource_slice);
+            resource_slice[0] = image_descriptor;
+        }
     }
 
     fn draw(&self, command_buffer: &mut CommandBuffer) {
+        command_buffer.bind_descriptor_heap(self.resource_heap, self.sampler_heap);
+        command_buffer.image_barrier(
+            Stage::TRANSFER,
+            Stage::FRAGMENT_SHADER,
+            self.texture,
+            vk::ImageLayout::GENERAL,
+        );
+
+        command_buffer.begin_render_pass(&RenderPassDescription::default());
         command_buffer.set_pipeline(&self.pipeline);
-        command_buffer.draw_indexed_instanced(&[], self.indices, 1);
+        let push_data = [0u32, 0u32];
+        command_buffer.draw_indexed_instanced(
+            &bytemuck::cast_slice(push_data.as_slice()),
+            self.indices,
+            1,
+        );
+        command_buffer.end_render_pass();
+    }
+
+    fn free(&self, device: &mut Device) {
+        device.delete_ptr(self.resource_heap);
+        device.delete_ptr(self.sampler_heap);
+        device.delete_ptr(self.texture);
+        device.delete_ptr(self.staging_buffer);
+        device.delete_ptr(self.indices);
     }
 }
 
@@ -244,14 +349,15 @@ struct UiDataGpu {
 
 impl UiDataGpu {
     fn new(device: &mut Device) -> Self {
-        let text = include_bytes!("../../../egui.spv");
+        let mut spv = File::open("egui.spv").unwrap();
+        let text = read_spv(&mut spv).unwrap();
 
         let vertex_ir = ShaderIR {
-            bytes: text,
+            bytes: &text,
             entry: c"vertMain",
         };
         let frag_ir = ShaderIR {
-            bytes: text,
+            bytes: &text,
             entry: c"fragMain",
         };
         let description = RasterDescription {

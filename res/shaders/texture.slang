@@ -1,34 +1,29 @@
 struct VertexOutput {
-    float2 sv_position : SV_Position;
+    float4 sv_position : SV_Position;
+    float2 texture_uv;
 };
-static float2 positions[3] = float2[](
-    float2(0.0, -0.5),
+static float2 positions[4] = float2[](
+    float2(-0.5, -0.5),
+    float2(0.5, -0.5),
     float2(0.5, 0.5),
-    float2(-0.5, 0.5)
+    float2(-0.5, 0.5),
 );
-
 
 [shader("vertex")]
 VertexOutput vertMain(
     uint vid: SV_VertexID,
-    uniform uint2 tex_id,
+    uniform Sampler2D tex,
 ) {
-    let position = positions[vid];
+    let position = float4(positions[vid], 0.0, 1.0);
     VertexOutput output;
     output.sv_position = position;
+    output.texture_uv = (position.xy + 0.5);
     return output;
 }
 
 [shader("fragment")]
 float4 fragMain(VertexOutput vert,
-    uniform uint2 tex_id,
+    uniform Sampler2D tex,
 ) : SV_TARGET {
-    Sampler2D tex = *Sampler2D.Handle(tex_id);
-    int height;
-    int width;
-    int levels;
-
-    let color = tex.Sample(vert.sv_position);
-
-    return color;
+    return tex.Sample(vert.texture_uv);
 }
