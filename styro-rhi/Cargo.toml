@@ -3,6 +3,9 @@ name = "styro-rhi"
 version = "0.2.0"
 edition = "2024"
 
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
 [dependencies]
 # 2026-05-20, required for bindings to Vulkan 1.4 and VK_EXT_descriptor_heap
 ash = { git = "https://github.com/ash-rs/ash.git", rev = "a9a1fb17e98a0cde146caada86200d809306200d" }
