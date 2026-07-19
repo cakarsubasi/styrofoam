@@ -17,6 +17,8 @@ pub use self::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
 /// Re-export ash just in case
 pub use ash;
 
+pub use ash::util::read_spv;
+
 #[derive(Debug)]
 pub enum Error {
     DeviceLost,
@@ -129,6 +131,7 @@ pub enum BufferUsage {
     Index,
     DescriptorHeap,
 }
+#[derive(Clone, Copy)]
 pub struct BufferDesc {
     pub memory: Memory,
     pub size: u64,
@@ -153,10 +156,11 @@ impl Default for ImageDesc {
             layer_count: 1,
             sample_count: 1,
             format: ash::vk::Format::UNDEFINED,
-            usage: ash::vk::ImageUsageFlags::empty(),
+            usage: ash::vk::ImageUsageFlags::SAMPLED,
         }
     }
 }
+#[derive(Clone, Copy)]
 pub struct SamplerDesc {
     pub mag_filter: ash::vk::Filter,
     pub min_filter: ash::vk::Filter,
@@ -166,6 +170,31 @@ pub struct SamplerDesc {
     pub lod_bias: f32,
     pub lod_range: [f32; 2],
     pub compare_op: Option<ash::vk::CompareOp>,
+}
+impl Default for SamplerDesc {
+    fn default() -> Self {
+        Self {
+            mag_filter: Default::default(),
+            min_filter: Default::default(),
+            mipmap_mode: Default::default(),
+            address_mode: Default::default(),
+            anisotropy: Default::default(),
+            lod_bias: Default::default(),
+            lod_range: Default::default(),
+            compare_op: Default::default(),
+        }
+    }
+}
+
+#[repr(C, align(32))]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ImageDescriptor {
+    pub inner: [u64; 4],
+}
+#[repr(C, align(32))]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SamplerDescriptor {
+    pub inner: [u64; 4],
 }
 
 type UVec3 = [u32; 3];
@@ -190,8 +219,8 @@ pub trait DeviceRHI {
 
     fn delete_ptr(&mut self, ptr: Self::GpuPtr);
 
-    fn get_image_descriptor(&self, image: Self::GpuPtr) -> [u64; 4];
-    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> [u64; 4];
+    fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor;
+    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> SamplerDescriptor;
 
     fn create_queue(
         &mut self,

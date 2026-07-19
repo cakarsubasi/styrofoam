@@ -243,6 +243,10 @@ impl Device {
     fn device(&self) -> &ash::Device {
         &self.handles.inner
     }
+
+    pub fn get_descriptor_heap_properties(&self) -> DescriptorHeapProps {
+        self.handles.descriptor_heap_props.clone()
+    }
 }
 
 impl DeviceRHI for Device {
@@ -490,18 +494,18 @@ impl DeviceRHI for Device {
         todo!()
     }
 
-    fn get_image_descriptor(&self, image: Self::GpuPtr) -> [u64; 4] {
+    fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor {
         let heap = self.heap.read().unwrap();
-        let descriptor = &mut [0u64; 4];
-        heap.write_image_descriptor(image, bytemuck::cast_slice_mut(descriptor));
-        *descriptor
+        let mut descriptor = ImageDescriptor { inner: [0u64; 4] };
+        heap.write_image_descriptor(image, &mut descriptor);
+        descriptor
     }
 
-    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> [u64; 4] {
+    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> SamplerDescriptor {
         let heap = self.heap.read().unwrap();
-        let descriptor = &mut [0u64; 4];
-        heap.write_sampler_descriptor(desc, bytemuck::cast_slice_mut(descriptor));
-        *descriptor
+        let mut descriptor = SamplerDescriptor { inner: [0u64; 4] };
+        heap.write_sampler_descriptor(desc, &mut descriptor);
+        descriptor
     }
 }
 
@@ -770,27 +774,28 @@ impl DescriptorHeap {
         })
     }
 
-    fn write_sampler_descriptor(&self, desc: &SamplerDesc, addr: &mut [u8]) {
+    fn write_sampler_descriptor(&self, desc: &SamplerDesc, addr: &mut SamplerDescriptor) {
         let device = &self.device;
         let descriptor_heap = &device.descriptor_heap;
 
         unsafe {
-            let descriptor = [vk::HostAddressRangeEXT::default().address(addr)];
+            let descriptor = [vk::HostAddressRangeEXT::default()
+                .address(bytemuck::cast_slice_mut(&mut addr.inner))];
 
             let samplers = [
                 vk::SamplerCreateInfo::default()
-                    .flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
+                    //.flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
                     .mag_filter(vk::Filter::LINEAR) // Expose
                     .min_filter(vk::Filter::LINEAR) // Expose
                     .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
                     .address_mode_u(vk::SamplerAddressMode::REPEAT)
                     .address_mode_v(vk::SamplerAddressMode::REPEAT)
                     .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                    .anisotropy_enable(true)
-                    .max_anisotropy(16.0)
+                    .anisotropy_enable(false)
+                    .max_anisotropy(0.0)
                     .mip_lod_bias(1.0)
                     .min_lod(0.0)
-                    .max_lod(4.0)
+                    .max_lod(0.0)
                     .compare_enable(false)
                     .compare_op(vk::CompareOp::EQUAL)
                     .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
@@ -803,7 +808,7 @@ impl DescriptorHeap {
         }
     }
 
-    fn write_image_descriptor(&self, image: GpuPtr, addr: &mut [u8]) {
+    fn write_image_descriptor(&self, image: GpuPtr, addr: &mut ImageDescriptor) {
         let image = self.ptr_to_image(image);
 
         let device = &self.device;
@@ -829,7 +834,8 @@ impl DescriptorHeap {
                         ..Default::default()
                     },
                 })];
-            let descriptor = [vk::HostAddressRangeEXT::default().address(addr)];
+            let descriptor = [vk::HostAddressRangeEXT::default()
+                .address(bytemuck::cast_slice_mut(&mut addr.inner))];
             descriptor_heap
                 .write_resource_descriptors(&resource, &descriptor)
                 .unwrap();
@@ -991,7 +997,11 @@ impl Buffer {
                 // HMMMM
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .size(size)
-                .usage(buffer_usage.usage() | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS);
+                .usage(
+                    buffer_usage.usage()
+                        | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
+                        | vk::BufferUsageFlags::TRANSFER_SRC,
+                );
 
             let allocation_info = desc.memory.vma_options();
 
@@ -1122,7 +1132,7 @@ impl Image {
     // Create a 2D Image with the given extent
     pub fn new(device: Arc<DeviceHandles>, description: &ImageDesc) -> Self {
         unsafe {
-            let layout = vk::ImageLayout::GENERAL;
+            let layout = vk::ImageLayout::UNDEFINED;
             let image_info = vk::ImageCreateInfo::default()
                 //.flags()
                 .image_type(description.ty)
@@ -1136,7 +1146,7 @@ impl Image {
                 .array_layers(description.layer_count)
                 .samples(description.sample_count())
                 .tiling(vk::ImageTiling::OPTIMAL)
-                .usage(description.usage)
+                .usage(description.usage | vk::ImageUsageFlags::TRANSFER_DST)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .initial_layout(layout)
             //.initial_layout(vk::ImageLayout::UNDEFINED);
