@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::sync::Arc;
 
 use ash::VkResult;
@@ -141,6 +142,11 @@ impl Swapchain {
             })
             .collect::<VkResult<Vec<SwapchainImage>>>()?;
 
+        for (idx, image) in swapchain_images.iter().enumerate() {
+            let name = CString::new(format!("Swapchain Image {idx}")).unwrap();
+            device.set_object_name(image.image, &name);
+        }
+
         let acquire_semaphores = (0..MAXIMUM_FRAMES_IN_FLIGHT)
             .map(|_| {
                 device
@@ -155,6 +161,15 @@ impl Swapchain {
                     .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
             })
             .collect::<VkResult<Vec<_>>>()?;
+
+        for (idx, semaphore) in acquire_semaphores.iter().enumerate() {
+            let name = CString::new(format!("Swapchain acquire semaphore {idx}")).unwrap();
+            device.set_object_name(*semaphore, &name);
+        }
+        for (idx, semaphore) in submit_semaphores.iter().enumerate() {
+            let name = CString::new(format!("Swapchain submit semaphore {idx}")).unwrap();
+            device.set_object_name(*semaphore, &name);
+        }
 
         let resources = PresentationResources {
             images: swapchain_images,

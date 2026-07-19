@@ -65,6 +65,19 @@ pub(super) struct DeviceHandles {
     pub device_address_commands: khr::device_address_commands::Device,
 }
 
+impl DeviceHandles {
+    pub(crate) fn set_object_name<T: ash::vk::Handle>(&self, handle: T, name: &CStr) {
+        let debug_utils_object_name = vk::DebugUtilsObjectNameInfoEXT::default()
+            .object_handle(handle)
+            .object_name(name);
+        unsafe {
+            self.debug_utils
+                .set_debug_utils_object_name(&debug_utils_object_name)
+                .unwrap();
+        }
+    }
+}
+
 impl Drop for DeviceHandles {
     fn drop(&mut self) {
         unsafe {
