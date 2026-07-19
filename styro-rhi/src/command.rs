@@ -222,7 +222,40 @@ impl CommandRHI for CommandBuffer {
     }
 
     fn copy_to_texture(&mut self, _dst: Self::GpuPtr, _src: Self::GpuPtr) {
-        todo!();
+        let heap = self.heap.read().unwrap();
+        let src_buffer = heap.ptr_to_buffer(_src);
+        let dst_image = heap.ptr_to_image(_dst);
+
+        let buffer_offset = _src.offset as u64;
+        let image_extent = vk::Extent3D {
+            width: dst_image.desc.dimensions[0],
+            height: dst_image.desc.dimensions[1],
+            depth: dst_image.desc.dimensions[2],
+        };
+
+        let regions = [vk::BufferImageCopy::default()
+            .buffer_offset(buffer_offset)
+            .buffer_image_height(0)
+            .buffer_row_length(0)
+            .image_offset(vk::Offset3D::default())
+            .image_extent(image_extent)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0) // TODO: maybe consider multiple mip levels?
+                    .base_array_layer(0)
+                    .layer_count(dst_image.desc.layer_count),
+            )];
+
+        unsafe {
+            self.device.inner.cmd_copy_buffer_to_image(
+                self.inner,
+                src_buffer.inner,
+                dst_image.inner,
+                vk::ImageLayout::GENERAL,
+                &regions,
+            );
+        }
     }
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr) {
