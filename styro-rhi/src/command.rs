@@ -352,6 +352,23 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
+    fn image_barrier(
+        &mut self,
+        before: Stage,
+        after: Stage,
+        image: Self::GpuPtr,
+        layout: ash::vk::ImageLayout,
+    ) {
+        self.layout_transition_queue.push(LayoutTransition {
+            image: Framebuffer::Image(image),
+            new_layout: layout,
+            src_stage_mask: before.into(),
+            src_access_mask: vk::AccessFlags2::NONE,
+            dst_stage_mask: after.into(),
+            dst_access_mask: vk::AccessFlags2::SHADER_SAMPLED_READ,
+        });
+    }
+
     fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64) {
         self.signal.push(SemaphoreInfo {
             semaphore: semaphore.inner,

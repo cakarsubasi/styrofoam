@@ -278,6 +278,13 @@ pub trait CommandRHI {
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
+    fn image_barrier(
+        &mut self,
+        before: Stage,
+        after: Stage,
+        image: Self::GpuPtr,
+        layout: ash::vk::ImageLayout,
+    );
     fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
     fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
 
