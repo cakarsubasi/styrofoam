@@ -273,10 +273,10 @@ impl CommandRHI for CommandBuffer {
             let resource_addr = unsafe {
                 self.device.inner.get_buffer_device_address(
                     &vk::BufferDeviceAddressInfo::default().buffer(resource_heap_buf.inner),
-                )
+                ) + resource_heap.offset as u64
             };
 
-            let resource_heap_size = resource_heap_buf.len();
+            let resource_heap_size = resource_heap.size as u64;
 
             let heap_bind_info = vk::BindHeapInfoEXT::default()
                 .heap_range(
@@ -297,10 +297,16 @@ impl CommandRHI for CommandBuffer {
             let sampler_addr = unsafe {
                 self.device.inner.get_buffer_device_address(
                     &vk::BufferDeviceAddressInfo::default().buffer(sampler_heap_buf.inner),
-                )
+                ) + sampler_heap.offset as u64
             };
 
-            let sampler_heap_size = sampler_heap_buf.len();
+            let sampler_heap_size = sampler_heap.size as u64 / props.sampler_heap_alignment
+                * props.sampler_heap_alignment;
+
+            let sampler_heap_reserved_size = props.min_sampler_heap_reserved_range
+                + (props.sampler_heap_alignment - 1) / props.sampler_heap_alignment
+                    * props.sampler_heap_alignment;
+            let sampler_heap_reserved_offset = sampler_heap_size - sampler_heap_reserved_size;
 
             let heap_bind_info = vk::BindHeapInfoEXT::default()
                 .heap_range(
@@ -308,8 +314,8 @@ impl CommandRHI for CommandBuffer {
                         .address(sampler_addr)
                         .size(sampler_heap_size),
                 )
-                .reserved_range_offset(sampler_heap_size - props.min_sampler_heap_reserved_range)
-                .reserved_range_size(props.min_sampler_heap_reserved_range);
+                .reserved_range_offset(sampler_heap_reserved_offset)
+                .reserved_range_size(sampler_heap_reserved_size);
 
             unsafe {
                 descriptor_heap.cmd_bind_sampler_heap(self.inner, &heap_bind_info);
