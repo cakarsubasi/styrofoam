@@ -1,5 +1,5 @@
 use egui_winit::create_window;
-use renderer::renderer::{Renderer, UiData};
+use styro_viewer::renderer::Renderer;
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
