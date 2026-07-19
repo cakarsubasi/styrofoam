@@ -48,7 +48,7 @@ pub struct Semaphore {
 }
 
 pub struct ShaderIR<'a> {
-    pub bytes: &'a [u8],
+    pub bytes: &'a [u32],
     pub entry: &'a CStr,
 }
 
