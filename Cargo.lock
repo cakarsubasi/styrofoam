@@ -2718,7 +2718,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "styro-shader-rhi"
+name = "styro-shader-tools"
 version = "0.1.0"
 dependencies = [
  "serde",

@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["styro-rhi", "styro-viewer", "styro-shader-rhi"]
+members = ["styro-rhi", "styro-viewer", "styro-shader-tools"]
