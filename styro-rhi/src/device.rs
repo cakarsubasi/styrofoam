@@ -2,7 +2,6 @@ use core::slice;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::ptr::null_mut;
 use std::sync::Arc;
@@ -13,7 +12,7 @@ use std::sync::atomic::Ordering;
 
 use ash::VkResult;
 use ash::ext;
-use ash::khr;
+//use ash::khr;
 use ash::vk;
 use ash::vk::TaggedStructure as _;
 use raw_window_handle::RawDisplayHandle;
@@ -68,16 +67,19 @@ pub struct ShaderIR<'a> {
 }
 
 pub(super) struct DeviceHandles {
+    // Surface needs to be dropped before the instance, meaning if I move the surface out,
+    // the instance needs to be behind a shared pointer so the device itself cannot drop it before the surface
     pub surface: Surface,
     pub inner: ash::Device,
     pub instance: Instance,
     pub pdevice: vk::PhysicalDevice,
     pub allocator: ManuallyDrop<vk_mem::Allocator>,
+    // Extensions
     pub debug_utils: ext::debug_utils::Device,
     pub descriptor_heap: ext::descriptor_heap::Device,
     pub descriptor_heap_props: DescriptorHeapProps,
     pub extended_dynamic_state3: ext::extended_dynamic_state3::Device,
-    pub device_address_commands: khr::device_address_commands::Device,
+    // pub device_address_commands: khr::device_address_commands::Device, // Poor support right now
 }
 
 impl DeviceHandles {
@@ -145,7 +147,7 @@ impl CommandPool {
         }
     }
 
-    fn destroy(&self, device: &ash::Device) {
+    unsafe fn destroy(&self, device: &ash::Device) {
         unsafe {
             device.destroy_command_pool(self.command_pool, None);
         }
@@ -153,9 +155,8 @@ impl CommandPool {
 }
 
 struct QueuePool {
-    family_index: u32,
+    pub(crate) _family_index: u32,
     queue: vk::Queue,
-    queues_used: usize,
     command_pools: Vec<CommandPool>,
 }
 
@@ -175,9 +176,8 @@ impl QueuePool {
                 .collect();
 
             Self {
-                family_index: queue_index,
+                _family_index: queue_index,
                 queue,
-                queues_used: 0,
                 command_pools: command_pools,
             }
         }
@@ -207,9 +207,9 @@ impl Device {
             let DeviceResult {
                 device,
                 pdevice,
-                graphics_queue_index,
-                compute_queue_index,
-                transfer_queue_index,
+                graphics_queue_index: _,
+                compute_queue_index: _,
+                transfer_queue_index: _,
             } = instance.create_device(&surface);
 
             let mut allocator_create_info =
@@ -228,8 +228,8 @@ impl Device {
             let extended_dynamic_state3 =
                 ext::extended_dynamic_state3::Device::load(&instance.instance, &device);
 
-            let device_address_commands =
-                khr::device_address_commands::Device::load(&instance.instance, &device);
+            //let device_address_commands =
+            //    khr::device_address_commands::Device::load(&instance.instance, &device);
 
             let handles = Arc::new(DeviceHandles {
                 instance,
@@ -241,7 +241,7 @@ impl Device {
                 descriptor_heap: descriptor_heap_loader,
                 descriptor_heap_props: descriptor_heap_props.unwrap(),
                 extended_dynamic_state3,
-                device_address_commands,
+                //device_address_commands,
             });
 
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();
@@ -520,9 +520,9 @@ impl DeviceRHI for Device {
 
     fn create_meshlet_pipeline(
         &mut self,
-        meshlet_ir: &ShaderIR,
-        fragment_ir: &ShaderIR,
-        description: &RasterDescription,
+        _meshlet_ir: &ShaderIR,
+        _fragment_ir: &ShaderIR,
+        _description: &RasterDescription,
     ) -> Self::Pipeline {
         todo!()
     }
@@ -582,7 +582,7 @@ impl Queue {
         let mut swapchain = swapchain.write().unwrap();
         let next_frame = match swapchain.next_frame(frame_index) {
             Ok(next_frame) => next_frame,
-            Err(err) => {
+            Err(_err) => {
                 swapchain.recreate()?;
                 return Err(Error::SwapchainOutOfDate);
             }
@@ -759,7 +759,7 @@ impl QueueRHI for Queue {
                     .swapchain_loader
                     .queue_present(queue.queue, &present_info);
                 if result.is_err() {
-                    swapchain.recreate(); // if not ready, we will just try again next time
+                    swapchain.recreate().inspect_err(|_| {})?; // if not ready, we will just try again next time
                 }
             }
         }
@@ -767,10 +767,10 @@ impl QueueRHI for Queue {
     }
 }
 
+// Might consider having two hash maps for either type and even splitting GpuPtr
 enum HeapOwnedResource {
     Buffer(Buffer),
     Image(Image),
-    Empty,
 }
 
 pub(super) struct DescriptorHeap {
@@ -782,7 +782,6 @@ impl DescriptorHeap {
     pub fn new(device: Arc<DeviceHandles>) -> VkResult<Self> {
         eprintln!("heap props:\n{:?}", device.descriptor_heap_props);
 
-        let descriptor_heap = &device.descriptor_heap;
         let resource_heap_size = device.descriptor_heap_props.max_resource_heap_size;
         let sampler_heap_size = device.descriptor_heap_props.max_sampler_heap_size;
         let image_descriptor_size = device.descriptor_heap_props.image_descriptor_size;
@@ -859,7 +858,7 @@ impl DescriptorHeap {
 
         let device = &self.device;
         let descriptor_heap = &device.descriptor_heap;
-        let props = &device.descriptor_heap_props;
+        let _props = &device.descriptor_heap_props;
         unsafe {
             let resource = [vk::ResourceDescriptorInfoEXT::default()
                 .ty(vk::DescriptorType::SAMPLED_IMAGE)
@@ -1029,7 +1028,7 @@ pub(super) struct Buffer {
     pub inner: vk::Buffer,
     allocation: vk_mem::Allocation,
     size: u64,
-    pub ty: BufferUsage,
+    pub _ty: BufferUsage,
     mapped_ptr: Option<*mut u8>,
 }
 
@@ -1066,12 +1065,13 @@ impl Buffer {
                 inner: buffer,
                 allocation,
                 size: size,
-                ty: buffer_usage,
+                _ty: buffer_usage,
                 mapped_ptr,
             })
         }
     }
 
+    #[allow(unused)]
     pub fn copy_to_buffer(&self, data: &[u8], dst_offset: u64) {
         if data
             .len()
@@ -1090,6 +1090,7 @@ impl Buffer {
         }
     }
 
+    #[allow(unused)]
     pub fn with_mapping(&mut self, f: impl FnOnce(&mut [u8])) {
         // Safety: &mut self is required because calling any buffer function inside
         // f would create aliasing &mut
@@ -1112,16 +1113,19 @@ impl Buffer {
         self.size
     }
 
-    unsafe fn device_address(&self) -> vk::DeviceAddress {
-        let address = self
-            .device
-            .inner
-            .get_buffer_device_address(&vk::BufferDeviceAddressInfo::default().buffer(self.inner));
+    #[allow(unused)]
+    fn device_address(&self) -> vk::DeviceAddress {
+        unsafe {
+            let address = self.device.inner.get_buffer_device_address(
+                &vk::BufferDeviceAddressInfo::default().buffer(self.inner),
+            );
 
-        address
+            address
+        }
     }
 
-    pub unsafe fn device_address_range(&self) -> vk::DeviceAddressRangeKHR {
+    #[allow(unused)]
+    pub fn device_address_range(&self) -> vk::DeviceAddressRangeKHR {
         let address = self.device_address();
         let size = self.len();
         vk::DeviceAddressRangeKHR { address, size }

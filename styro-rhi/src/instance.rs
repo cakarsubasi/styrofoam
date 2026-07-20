@@ -234,8 +234,9 @@ impl Instance {
         let mut vk14_features = vk::PhysicalDeviceVulkan14Features::default()
             .dynamic_rendering_local_read(true) // subpasses
             .maintenance5(true); // pass spirv directly rather than creating a ShaderModule
-        let mut descriptor_heap_feature =
-            vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default().descriptor_heap(true);
+        let mut descriptor_heap_feature = vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default()
+            .descriptor_heap(true)
+            .descriptor_heap_capture_replay(false); // Nvidia 595.79 - capture replay is not supported
         let mut shader_untyped_ptrs_feature =
             vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::default()
                 .shader_untyped_pointers(true);

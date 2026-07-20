@@ -26,12 +26,7 @@ impl Drop for Surface {
 pub(super) struct Swapchain {
     device: Arc<DeviceHandles>,
     pub(super) swapchain: vk::SwapchainKHR,
-
     pub(super) swapchain_loader: khr::swapchain::Device,
-
-    pub swapchain_format: vk::SurfaceFormatKHR,
-    swapchain_extent: vk::Extent2D,
-
     resources: PresentationResources,
 }
 
@@ -181,8 +176,6 @@ impl Swapchain {
             device,
             swapchain,
             swapchain_loader,
-            swapchain_extent: surface_caps.current_extent,
-            swapchain_format: surface_format,
             resources,
         })
     }
