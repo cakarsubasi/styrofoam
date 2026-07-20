@@ -42,9 +42,18 @@ impl Cull {
     }
 }
 
-#[repr(transparent)]
+#[repr(C)]
 pub struct Semaphore {
+    pub(super) device: Arc<DeviceHandles>,
     pub(super) inner: vk::Semaphore,
+}
+
+impl Drop for Semaphore {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.inner.destroy_semaphore(self.inner, None);
+        }
+    }
 }
 
 pub struct ShaderIR<'a> {
@@ -317,8 +326,10 @@ impl DeviceRHI for Device {
 
             let semaphore = self.device().create_semaphore(&create_info, None).unwrap();
 
-            // TODO: semaphore destruction
-            Self::Semaphore { inner: semaphore }
+            Self::Semaphore {
+                device: Arc::clone(&self.handles),
+                inner: semaphore,
+            }
         }
     }
 
