@@ -815,22 +815,35 @@ impl DescriptorHeap {
             let descriptor = [vk::HostAddressRangeEXT::default()
                 .address(bytemuck::cast_slice_mut(&mut addr.inner))];
 
+            let anisotropy_enable = desc.anisotropy > 1.0;
+            let max_anisotropy = if anisotropy_enable {
+                desc.anisotropy
+            } else {
+                0.0
+            };
+            let compare_enable = desc.compare_op.is_some();
+            let compare_op = if let Some(compare_op) = desc.compare_op {
+                compare_op
+            } else {
+                vk::CompareOp::NEVER // doesn't matter
+            };
+
             let samplers = [
                 vk::SamplerCreateInfo::default()
                     //.flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
-                    .mag_filter(vk::Filter::LINEAR) // Expose
-                    .min_filter(vk::Filter::LINEAR) // Expose
-                    .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
-                    .address_mode_u(vk::SamplerAddressMode::REPEAT)
-                    .address_mode_v(vk::SamplerAddressMode::REPEAT)
-                    .address_mode_w(vk::SamplerAddressMode::REPEAT)
-                    .anisotropy_enable(false)
-                    .max_anisotropy(0.0)
-                    .mip_lod_bias(1.0)
-                    .min_lod(0.0)
-                    .max_lod(0.0)
-                    .compare_enable(false)
-                    .compare_op(vk::CompareOp::EQUAL)
+                    .mag_filter(desc.mag_filter) // Expose
+                    .min_filter(desc.min_filter) // Expose
+                    .mipmap_mode(desc.mipmap_mode)
+                    .address_mode_u(desc.address_mode[0])
+                    .address_mode_v(desc.address_mode[1])
+                    .address_mode_w(desc.address_mode[2])
+                    .anisotropy_enable(anisotropy_enable)
+                    .max_anisotropy(max_anisotropy)
+                    .mip_lod_bias(desc.lod_bias)
+                    .min_lod(desc.lod_range[0])
+                    .max_lod(desc.lod_range[1])
+                    .compare_enable(compare_enable)
+                    .compare_op(compare_op)
                     .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
                     .unnormalized_coordinates(false), // don't support
             ];
