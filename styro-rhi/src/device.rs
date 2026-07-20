@@ -48,6 +48,12 @@ pub struct Semaphore {
     pub(super) inner: vk::Semaphore,
 }
 
+impl Semaphore {
+    pub fn set_object_name(&self, name: &CStr) {
+        self.device.set_object_name(self.inner, name);
+    }
+}
+
 impl Drop for Semaphore {
     fn drop(&mut self) {
         unsafe {
@@ -255,6 +261,22 @@ impl Device {
 
     pub fn get_descriptor_heap_properties(&self) -> DescriptorHeapProps {
         self.handles.descriptor_heap_props.clone()
+    }
+
+    pub fn set_object_name(&self, obj: GpuPtr, name: &CStr) {
+        let heap = self.heap.read().unwrap();
+
+        if let Some(ref res) = heap
+            .allocations
+            .get(&(obj.addr as vk_mem::RawAllocationHandle))
+        {
+            match res {
+                HeapOwnedResource::Buffer(buffer) => {
+                    self.handles.set_object_name(buffer.inner, name)
+                }
+                HeapOwnedResource::Image(image) => self.handles.set_object_name(image.inner, name),
+            }
+        }
     }
 }
 

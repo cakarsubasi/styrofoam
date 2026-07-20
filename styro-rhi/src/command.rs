@@ -1,4 +1,5 @@
 use ash::vk;
+use std::ffi::CStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -31,6 +32,12 @@ pub struct Pipeline {
     pub(super) device: Arc<DeviceHandles>,
     pub(super) inner: vk::Pipeline,
     pub(super) ty: PipelineType,
+}
+
+impl Pipeline {
+    pub fn set_object_name(&self, name: &CStr) {
+        self.device.set_object_name(self.inner, name);
+    }
 }
 
 impl Drop for Pipeline {
