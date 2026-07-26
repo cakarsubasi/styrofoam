@@ -181,22 +181,19 @@ impl TextureRenderData {
         };
 
         let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
+        pipeline.set_object_name(c"bindlessTextureExamplePipeline");
         let buffer_desc = BufferDesc {
             memory: Memory::Default,
             size: 4 * 6,
             usage: BufferUsage::Index,
         };
         let indices = device.create_buffer(&buffer_desc);
+        device.set_object_name(indices, c"textureExampleIndexBuffer");
         let indices_mapped = device.buffer_host_ptr(indices) as *mut u32;
         unsafe {
-            let slice = slice::from_raw_parts_mut(indices_mapped, 3);
             let slice = slice::from_raw_parts_mut(indices_mapped, 6);
-            slice[0] = 0;
-            slice[1] = 1;
-            slice[2] = 2;
-            slice[3] = 0;
-            slice[4] = 2;
-            slice[5] = 3;
+            const INDEX_BUFFER: [u32; 6] = [0, 1, 2, 0, 2, 3];
+            slice.copy_from_slice(&INDEX_BUFFER);
         }
 
         let image_bytes = include_bytes!("../../../res/images/rust.png");
@@ -235,7 +232,6 @@ impl TextureRenderData {
             usage: BufferUsage::DescriptorHeap,
         });
 
-        //let image_descriptor = device.get_image_descriptor(image_ptr);
         let sampler_descriptor = device.get_sampler_descriptor(&SamplerDesc {
             ..Default::default()
         });
