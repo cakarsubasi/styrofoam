@@ -7,7 +7,6 @@ use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
 use super::device::GpuPtr;
 use super::device::Semaphore;
-use super::swapchain::NextFrame;
 use super::*;
 
 pub(crate) enum PipelineType {
@@ -65,7 +64,7 @@ pub struct CommandBuffer {
     pub(super) signal: Vec<SemaphoreInfo>,
     pub(super) layout_transition_queue: Vec<LayoutTransition>,
     // Presentation state
-    pub(super) present: Option<NextFrame>,
+    pub(super) presentation: Option<GpuPtr>,
 }
 
 // Common helpers
@@ -129,6 +128,7 @@ impl CommandBuffer {
     }
 
     pub(super) unsafe fn multiple_layout_transition(&self, transitions: &[LayoutTransition]) {
+        // TODO: array the transitions
         for transition in transitions {
             let LayoutTransition {
                 image,
@@ -139,24 +139,12 @@ impl CommandBuffer {
                 dst_access_mask,
             } = transition;
 
-            // TODO: yeet the Framebuffer thing, and emit a single barrier command
-            let (image, old_layout) = match image {
-                Framebuffer::Image(gpu_ptr) => {
-                    let guard = self.heap.read().unwrap();
-                    let image = guard.ptr_to_image(*gpu_ptr);
-                    let old_layout = image.current_layout.get();
-                    image.current_layout.set(*new_layout);
-                    (image.inner, old_layout)
-                }
-                Framebuffer::Swapchain(swapchain_image) => {
-                    let image = swapchain_image.image;
-                    let old_layout = if *new_layout == vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL {
-                        vk::ImageLayout::UNDEFINED
-                    } else {
-                        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
-                    };
-                    (image, old_layout)
-                }
+            let (image, old_layout) = {
+                let guard = self.heap.read().unwrap();
+                let image = guard.ptr_to_image(*image);
+                let old_layout = image.current_layout.get();
+                image.current_layout.set(*new_layout);
+                (image.inner, old_layout)
             };
 
             unsafe {
@@ -372,13 +360,20 @@ impl CommandRHI for CommandBuffer {
         image: Self::GpuPtr,
         layout: ash::vk::ImageLayout,
     ) {
+        use vk::AccessFlags2 as vkaf;
+
+        let (src_access_mask, dst_access_mask) = match (before, after) {
+            (Stage::HOST, _) => (vkaf::HOST_WRITE, vkaf::empty()),
+            (_, _) => (vkaf::empty(), vk::AccessFlags2::SHADER_SAMPLED_READ),
+        };
+
         self.layout_transition_queue.push(LayoutTransition {
-            image: Framebuffer::Image(image),
+            image,
             new_layout: layout,
             src_stage_mask: before.into(),
-            src_access_mask: vk::AccessFlags2::NONE,
+            src_access_mask: src_access_mask,
             dst_stage_mask: after.into(),
-            dst_access_mask: vk::AccessFlags2::SHADER_SAMPLED_READ,
+            dst_access_mask: dst_access_mask,
         });
     }
 
@@ -466,18 +461,8 @@ impl CommandRHI for CommandBuffer {
                 .map(|target| {
                     let heap = self.heap.read().unwrap();
 
-                    let image_view = match target.image {
-                        Framebuffer::Image(gpu_ptr) => {
-                            let image = heap.ptr_to_image(gpu_ptr);
-                            image.view.unwrap()
-                        }
-                        Framebuffer::Swapchain(SwapchainImage {
-                            image: _image,
-                            view,
-                            extent: _,
-                            format: _,
-                        }) => view,
-                    };
+                    let image = heap.ptr_to_image(target.image);
+                    let image_view = image.view.unwrap();
 
                     self.layout_transition_queue.push(LayoutTransition {
                         image: target.image,
@@ -496,48 +481,18 @@ impl CommandRHI for CommandBuffer {
                         .image_view(image_view)
                 })
                 .collect();
-            let color_attachments = if let Some(ref presentation) = self.present {
-                let swapchain_view = presentation.image.view;
-                self.layout_transition_queue.push(LayoutTransition {
-                    image: Framebuffer::Swapchain(presentation.image),
-                    new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                    src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
-                    src_access_mask: vk::AccessFlags2::empty(),
-                    dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                    dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                });
-                vec![
-                    vk::RenderingAttachmentInfo::default()
-                        .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                        .load_op(vk::AttachmentLoadOp::CLEAR)
-                        .store_op(vk::AttachmentStoreOp::STORE)
-                        .clear_value(vk::ClearValue {
-                            color: Default::default(),
-                        })
-                        .image_view(swapchain_view),
-                ]
-            } else {
-                color_attachments
-            };
 
             let depth_attachment = if let Some(ref target) = desc.depth_target {
                 let heap = self.heap.read().unwrap();
-                let image = match target.image {
-                    Framebuffer::Image(gpu_ptr) => {
-                        let image = heap.ptr_to_image(gpu_ptr);
-
-                        image
-                    }
-                    _ => panic!("Can't use swapchain images as depth attachment"),
-                };
+                let image = heap.ptr_to_image(*&target.image);
 
                 self.layout_transition_queue.push(LayoutTransition {
                     image: target.image,
-                    new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    new_layout: vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
                     src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
                     src_access_mask: vk::AccessFlags2::empty(),
                     dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                    dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                    dst_access_mask: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
                 });
                 vk::RenderingAttachmentInfo::default()
                     .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
@@ -550,17 +505,14 @@ impl CommandRHI for CommandBuffer {
             };
             let stencil_attachment = if let Some(ref target) = desc.stencil_target {
                 let heap = self.heap.read().unwrap();
-                let image = match target.image {
-                    Framebuffer::Image(gpu_ptr) => heap.ptr_to_image(gpu_ptr),
-                    _ => panic!("Can't use swapchain images as stencil attachment"),
-                };
+                let image = heap.ptr_to_image(target.image);
                 self.layout_transition_queue.push(LayoutTransition {
                     image: target.image,
                     new_layout: vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL,
                     src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
                     src_access_mask: vk::AccessFlags2::empty(),
                     dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                    dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                    dst_access_mask: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
                 });
                 vk::RenderingAttachmentInfo::default()
                     .image_layout(vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL)
@@ -573,10 +525,10 @@ impl CommandRHI for CommandBuffer {
             };
 
             let extent = if let Some(target) = desc.color_targets.first() {
-                target.image.extent()
+                let heap = self.heap.read().unwrap();
+                heap.ptr_to_image(target.image).extent2d()
             } else {
-                // Swapchain extent
-                self.present.as_ref().unwrap().image.extent
+                panic!();
             };
             let rendering_info = vk::RenderingInfo::default()
                 .layer_count(1)
@@ -653,17 +605,37 @@ impl CommandRHI for CommandBuffer {
     }
 }
 
+impl SwapchainCommandRHI for CommandBuffer {
+    fn begin_presenting(&mut self, swapchain_image: GpuPtr) {
+        let heap = self.heap.read().unwrap();
+        let image = heap.ptr_to_image(swapchain_image);
+
+        match &image.data {
+            device::ImageData::Allocated(_) => {
+                panic!("Cannot present onto an image not acquired from the swapchain")
+            }
+            device::ImageData::Swapchain(data) => {
+                self.signal.push(SemaphoreInfo {
+                    semaphore: data.submit_signal_present_wait.get(),
+                    value: 0,
+                    stage: vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                });
+                self.wait.push(SemaphoreInfo {
+                    semaphore: data.submit_wait.get(),
+                    value: 0,
+                    stage: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                });
+            }
+        }
+        self.presentation = Some(swapchain_image);
+    }
+}
+
 pub(super) struct LayoutTransition {
-    image: Framebuffer,
+    image: GpuPtr,
     new_layout: vk::ImageLayout,
     src_stage_mask: vk::PipelineStageFlags2,
     src_access_mask: vk::AccessFlags2,
     dst_stage_mask: vk::PipelineStageFlags2,
     dst_access_mask: vk::AccessFlags2,
-}
-
-impl Framebuffer {
-    fn extent(&self) -> vk::Extent2D {
-        todo!()
-    }
 }

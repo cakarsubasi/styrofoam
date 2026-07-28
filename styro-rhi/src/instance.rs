@@ -175,7 +175,7 @@ impl Instance {
     }
 
     // TODO: maybe move device creation to device.rs instead?
-    pub unsafe fn create_device(&self, surface: &Surface) -> DeviceResult {
+    pub unsafe fn create_device(&self) -> DeviceResult {
         let pdevices = self
             .instance
             .enumerate_physical_devices()
@@ -196,7 +196,7 @@ impl Instance {
         }
 
         let (pdevice, graphics_queue, compute_queue, transfer_queue) =
-            self.choose_physical_device(surface);
+            self.choose_physical_device();
 
         // Check if VK_EXT_descriptor_heap is supported
         let _descriptor_heap_props = self
@@ -283,7 +283,6 @@ impl Instance {
 
     fn choose_physical_device(
         &self,
-        surface: &Surface,
     ) -> (
         vk::PhysicalDevice,
         QueueFamilyIndex,
@@ -317,14 +316,10 @@ impl Instance {
             let _graphics_id = queue_family_props
                 .iter()
                 .enumerate()
-                .find(|&(idx, props)| {
+                .find(|&(_idx, props)| {
                     props.queue_flags.contains(vk::QueueFlags::GRAPHICS)
                         && props.queue_flags.contains(vk::QueueFlags::COMPUTE)
                         && props.queue_flags.contains(vk::QueueFlags::TRANSFER)
-                        && self
-                            .surface_loader
-                            .get_physical_device_surface_support(pdevice, idx as u32, surface.inner)
-                            .unwrap()
                 })
                 .unwrap()
                 .0 as u32;

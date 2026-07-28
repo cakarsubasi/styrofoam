@@ -1,10 +1,25 @@
+use std::cell::Cell;
 use std::ffi::CString;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 use ash::VkResult;
 use ash::ext;
 use ash::khr;
 use ash::vk;
+use ash::vk::ImageType;
+use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::RawWindowHandle;
+
+use crate::Error;
+use crate::GpuPtr;
+use crate::ImageDesc;
+use crate::SwapchainInfo;
+use crate::SwapchainRHI;
+use crate::WindowSystemData;
+use crate::device::DescriptorHeap;
+use crate::device::Image;
+use crate::device::ImageData;
 
 use super::device::DeviceHandles;
 
@@ -23,25 +38,115 @@ impl Drop for Surface {
     }
 }
 
-pub(super) struct Swapchain {
+pub struct Swapchain {
+    // device data
     device: Arc<DeviceHandles>,
+    heap: Arc<RwLock<DescriptorHeap>>,
+    // surface associated with this swapchain
+    surface: Surface,
+    // swapchain data
+    info: SwapchainInfo,
     pub(super) swapchain: vk::SwapchainKHR,
     pub(super) swapchain_loader: khr::swapchain::Device,
     resources: PresentationResources,
+    frame_index: u64,
+    present_queue: vk::Queue,
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct SwapchainImage {
-    pub(super) image: vk::Image,
-    pub(super) view: vk::ImageView,
-    pub(super) extent: vk::Extent2D,
-    pub(super) format: vk::Format,
+impl SwapchainRHI for Swapchain {
+    fn acquire_next_image(&mut self) -> Result<GpuPtr, Error> {
+        let frame_index = self.frame_index;
+        let frame_idx = frame_index as usize % self.resources.maximum_frames_in_flight();
+
+        let acquire_semaphore = self.resources.acquire_semaphores[frame_idx];
+
+        unsafe {
+            let acquire_info = vk::AcquireNextImageInfoKHR::default()
+                .device_mask(1)
+                .swapchain(self.swapchain)
+                .timeout(u64::MAX)
+                .semaphore(acquire_semaphore);
+
+            let (image_idx, _) = match self.swapchain_loader.acquire_next_image2(&acquire_info) {
+                Ok(res) => res,
+                Err(_) => {
+                    let _ = self.recreate()?;
+                    return Err(Error::SwapchainOutOfDate);
+                }
+            };
+
+            let submit_semaphore = self.resources.submit_semaphores[image_idx as usize];
+
+            let heap = self.heap.read().unwrap();
+
+            let swapchain_image_ptr = self.resources.image_handles[image_idx as usize];
+
+            let swapchain_image = heap.ptr_to_image(swapchain_image_ptr);
+
+            assert!(
+                swapchain_image.is_swapchain_image(),
+                "Descriptor heap is corrupt!"
+            );
+
+            if let ImageData::Swapchain(data) = &swapchain_image.data {
+                // Epic racy tearing writes
+                data.submit_signal_present_wait.set(submit_semaphore);
+                data.submit_wait.set(acquire_semaphore);
+            }
+
+            self.frame_index += 1;
+
+            Ok(swapchain_image_ptr)
+        }
+    }
+
+    fn present(&mut self, swapchain_image: crate::GpuPtr) -> Result<(), Error> {
+        let heap = self.heap.read().unwrap();
+
+        let swapchain_image = heap.ptr_to_image(swapchain_image);
+
+        assert!(
+            swapchain_image.is_swapchain_image(),
+            "Descriptor heap is corrupt!"
+        );
+
+        let result = if let ImageData::Swapchain(data) = &swapchain_image.data {
+            let queue = self.present_queue;
+
+            let swapchains = [self.swapchain];
+            let wait_semaphores = [data.submit_signal_present_wait.get()];
+            let indices = [data.idx];
+            let present_info = vk::PresentInfoKHR::default()
+                .swapchains(&swapchains)
+                .wait_semaphores(&wait_semaphores)
+                .image_indices(&indices);
+            unsafe { self.swapchain_loader.queue_present(queue, &present_info) }
+        } else {
+            unreachable!()
+        };
+        drop(heap);
+
+        if result.is_err() {
+            self.recreate().inspect_err(|_| {})?; // if not ready, we will just try again next time
+        }
+        Ok(())
+    }
 }
 
 pub struct PresentationResources {
-    images: Vec<SwapchainImage>,            // swapchain_size
     acquire_semaphores: Vec<vk::Semaphore>, // frames_in_flight
     submit_semaphores: Vec<vk::Semaphore>,  // swapchain_size
+    image_handles: Vec<GpuPtr>,
+}
+
+impl PresentationResources {
+    fn new() -> Self {
+        PresentationResources {
+            acquire_semaphores: vec![],
+            submit_semaphores: vec![],
+            image_handles: vec![],
+        }
+    }
 }
 
 impl PresentationResources {
@@ -50,38 +155,59 @@ impl PresentationResources {
     }
 
     fn swapchain_size(&self) -> usize {
-        self.images.len()
+        self.image_handles.len()
     }
 }
 
 impl Swapchain {
-    pub unsafe fn new(device: Arc<DeviceHandles>) -> Result<Swapchain, vk::Result> {
-        Self::create_swapchain(device, vk::SwapchainKHR::null())
+    pub(crate) unsafe fn new(
+        device: Arc<DeviceHandles>,
+        heap: Arc<RwLock<DescriptorHeap>>,
+        window: &WindowSystemData,
+        present_queue: vk::Queue,
+        info: &SwapchainInfo,
+    ) -> Result<Swapchain, vk::Result> {
+        let WindowSystemData {
+            display_handle,
+            window_handle,
+        } = window;
+
+        unsafe {
+            let surface = device
+                .instance
+                .create_surface(*display_handle, *window_handle);
+
+            Self::create_swapchain(
+                device,
+                surface,
+                heap,
+                vk::SwapchainKHR::null(),
+                present_queue,
+                info,
+            )
+        }
     }
 
-    unsafe fn create_swapchain(
-        device: Arc<DeviceHandles>,
-        swapchain: vk::SwapchainKHR,
-    ) -> Result<Swapchain, vk::Result> {
-        const MAXIMUM_FRAMES_IN_FLIGHT: u32 = 2;
-        const SWAPCHAIN_SIZE: u32 = MAXIMUM_FRAMES_IN_FLIGHT + 1;
-
-        let swapchain_loader =
-            khr::swapchain::Device::load(&device.instance.instance, &device.inner);
-
-        let surface_loader = &device.surface.surface_loader;
-
-        let surface_caps = surface_loader
-            .get_physical_device_surface_capabilities(device.pdevice, device.surface.inner)?;
+    fn create_or_recreate_swapchain(
+        swapchain_loader: &khr::swapchain::Device,
+        device: &DeviceHandles,
+        surface: &Surface,
+        old_swapchain: vk::SwapchainKHR,
+        info: &SwapchainInfo,
+        surface_caps: vk::SurfaceCapabilitiesKHR,
+    ) -> Result<vk::SwapchainKHR, vk::Result> {
+        let surface_loader = &surface.surface_loader;
 
         if surface_caps.current_extent.height == 0 || surface_caps.current_extent.width == 0 {
             return Err(vk::Result::NOT_READY);
         }
 
-        let surface_format = Self::choose_surface_format(&device, surface_loader, &device.surface)?;
+        let surface_format = Self::choose_surface_format(&device, surface_loader, &surface)?;
 
-        let present_modes = surface_loader
-            .get_physical_device_surface_present_modes(device.pdevice, device.surface.inner)?;
+        let present_modes = unsafe {
+            surface_loader
+                .get_physical_device_surface_present_modes(device.pdevice, surface.inner)?
+        };
 
         let present_mode = if present_modes.contains(&vk::PresentModeKHR::MAILBOX) {
             vk::PresentModeKHR::MAILBOX
@@ -90,94 +216,166 @@ impl Swapchain {
         };
 
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
-            .surface(device.surface.inner)
+            .surface(surface.inner)
             .image_extent(surface_caps.current_extent)
-            .image_format(surface_format.format)
-            .image_color_space(surface_format.color_space)
+            .image_format(info.format)
+            .image_color_space(info.color_space)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(surface_caps.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // PRE_MULTIPLIED is funky
             .image_array_layers(1)
-            .min_image_count(SWAPCHAIN_SIZE)
+            .min_image_count(info.size + 1)
             .present_mode(present_mode)
             .clipped(true)
-            .old_swapchain(swapchain);
+            .old_swapchain(old_swapchain);
 
-        // TODO: should be able to handle this
-        let swapchain = swapchain_loader
-            .create_swapchain(&swapchain_create_info, None)
-            .expect("Cannot create swapchain");
+        unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }
+    }
 
-        let swapchain_images = swapchain_loader.get_swapchain_images(swapchain)?;
+    unsafe fn create_swapchain(
+        device: Arc<DeviceHandles>,
+        surface: Surface,
+        heap: Arc<RwLock<DescriptorHeap>>,
+        swapchain: vk::SwapchainKHR,
+        present_queue: vk::Queue,
+        info: &SwapchainInfo,
+    ) -> Result<Swapchain, vk::Result> {
+        let swapchain_loader =
+            khr::swapchain::Device::load(&device.instance.instance, &device.inner);
 
-        let swapchain_images = swapchain_images
-            .into_iter()
-            .map(|image| {
-                let view = device.inner.create_image_view(
-                    &vk::ImageViewCreateInfo::default()
-                        .view_type(vk::ImageViewType::TYPE_2D)
-                        .format(surface_format.format)
-                        .image(image)
-                        .subresource_range(vk::ImageSubresourceRange {
-                            aspect_mask: vk::ImageAspectFlags::COLOR,
-                            base_mip_level: 0,
-                            level_count: 1,
-                            base_array_layer: 0,
-                            layer_count: 1,
-                        }),
-                    None,
-                )?;
-                Ok(SwapchainImage {
-                    image,
-                    view,
-                    format: surface_format.format,
-                    extent: surface_caps.current_extent,
-                })
-            })
-            .collect::<VkResult<Vec<SwapchainImage>>>()?;
-
-        for (idx, image) in swapchain_images.iter().enumerate() {
-            let name = CString::new(format!("Swapchain Image {idx}")).unwrap();
-            device.set_object_name(image.image, &name);
-        }
-
-        let acquire_semaphores = (0..MAXIMUM_FRAMES_IN_FLIGHT)
-            .map(|_| {
-                device
-                    .inner
-                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
-            })
-            .collect::<VkResult<Vec<_>>>()?;
-        let submit_semaphores = (0..SWAPCHAIN_SIZE)
-            .map(|_| {
-                device
-                    .inner
-                    .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
-            })
-            .collect::<VkResult<Vec<_>>>()?;
-
-        for (idx, semaphore) in acquire_semaphores.iter().enumerate() {
-            let name = CString::new(format!("Swapchain acquire semaphore {idx}")).unwrap();
-            device.set_object_name(*semaphore, &name);
-        }
-        for (idx, semaphore) in submit_semaphores.iter().enumerate() {
-            let name = CString::new(format!("Swapchain submit semaphore {idx}")).unwrap();
-            device.set_object_name(*semaphore, &name);
-        }
-
-        let resources = PresentationResources {
-            images: swapchain_images,
-            acquire_semaphores,
-            submit_semaphores,
+        let surface_caps = unsafe {
+            surface
+                .surface_loader
+                .get_physical_device_surface_capabilities(device.pdevice, surface.inner)?
         };
 
-        Ok(Swapchain {
+        let swapchain = Self::create_or_recreate_swapchain(
+            &swapchain_loader,
+            &device,
+            &surface,
+            swapchain,
+            info,
+            surface_caps,
+        )?;
+
+        let mut swapchain = Swapchain {
             device,
+            heap,
+            surface,
             swapchain,
             swapchain_loader,
-            resources,
-        })
+            resources: PresentationResources::new(),
+            frame_index: 0,
+            info: *info,
+            present_queue,
+        };
+
+        swapchain.recreate_resources(&surface_caps)?;
+
+        Ok(swapchain)
+    }
+
+    fn recreate_resources(
+        &mut self,
+        surface_caps: &vk::SurfaceCapabilitiesKHR,
+    ) -> Result<(), vk::Result> {
+        self.destroy_resources();
+        unsafe {
+            let device = &self.device;
+            let mut heap = self.heap.write().unwrap();
+
+            let swapchain_images = self.swapchain_loader.get_swapchain_images(self.swapchain)?;
+
+            let swapchain_images = swapchain_images
+                .into_iter()
+                .enumerate()
+                .map(|(idx, image)| {
+                    let view = device.inner.create_image_view(
+                        &vk::ImageViewCreateInfo::default()
+                            .view_type(vk::ImageViewType::TYPE_2D)
+                            .format(self.info.format)
+                            .image(image)
+                            .subresource_range(vk::ImageSubresourceRange {
+                                aspect_mask: vk::ImageAspectFlags::COLOR,
+                                base_mip_level: 0,
+                                level_count: 1,
+                                base_array_layer: 0,
+                                layer_count: 1,
+                            }),
+                        None,
+                    )?;
+                    let dimensions = [
+                        surface_caps.current_extent.width,
+                        surface_caps.current_extent.height,
+                        1,
+                    ];
+                    Ok(Image {
+                        inner: image,
+                        view: Some(view),
+                        desc: ImageDesc {
+                            ty: ImageType::TYPE_2D,
+                            dimensions,
+                            mip_count: 1,
+                            layer_count: 1,
+                            sample_count: 1,
+                            format: self.info.format,
+                            usage: crate::ImageUsage::Attachment,
+                        },
+                        current_layout: Cell::new(vk::ImageLayout::UNDEFINED),
+                        data: ImageData::Swapchain(crate::device::SwapchainImageData {
+                            idx: idx as u32,
+                            submit_wait: Cell::new(vk::Semaphore::null()),
+                            submit_signal_present_wait: Cell::new(vk::Semaphore::null()),
+                        }),
+                    })
+                })
+                .collect::<VkResult<Vec<Image>>>()?;
+
+            for (idx, image) in swapchain_images.iter().enumerate() {
+                let name = CString::new(format!("Swapchain Image {idx}")).unwrap();
+                device.set_object_name(image.inner, &name);
+            }
+
+            let acquire_semaphores = (0..self.info.size)
+                .map(|_| {
+                    device
+                        .inner
+                        .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
+                })
+                .collect::<VkResult<Vec<_>>>()?;
+            let submit_semaphores = (0..(self.info.size + 1))
+                .map(|_| {
+                    device
+                        .inner
+                        .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
+                })
+                .collect::<VkResult<Vec<_>>>()?;
+
+            for (idx, semaphore) in acquire_semaphores.iter().enumerate() {
+                let name = CString::new(format!("Swapchain acquire semaphore {idx}")).unwrap();
+                device.set_object_name(*semaphore, &name);
+            }
+            for (idx, semaphore) in submit_semaphores.iter().enumerate() {
+                let name = CString::new(format!("Swapchain submit semaphore {idx}")).unwrap();
+                device.set_object_name(*semaphore, &name);
+            }
+
+            let image_handles = swapchain_images
+                .into_iter()
+                .map(|image| heap.insert_swapchain_image(image))
+                .collect();
+
+            let resources = PresentationResources {
+                acquire_semaphores,
+                submit_semaphores,
+                image_handles,
+            };
+
+            self.resources = resources;
+        }
+
+        Ok(())
     }
 
     fn choose_surface_format(
@@ -202,46 +400,26 @@ impl Swapchain {
     }
 
     pub(crate) fn recreate(&mut self) -> VkResult<()> {
-        unsafe {
-            let new_swapchain =
-                Swapchain::create_swapchain(Arc::clone(&self.device), self.swapchain);
-            *self = new_swapchain?;
-            Ok(())
-        }
+        // swapchain lost due to surface caps becoming outdated
+        let surface_caps = unsafe {
+            self.surface
+                .surface_loader
+                .get_physical_device_surface_capabilities(self.device.pdevice, self.surface.inner)?
+        };
+
+        let swapchain = Self::create_or_recreate_swapchain(
+            &self.swapchain_loader,
+            &self.device,
+            &self.surface,
+            self.swapchain,
+            &self.info,
+            surface_caps,
+        )?;
+        self.swapchain = swapchain;
+        self.recreate_resources(&surface_caps)
     }
 
-    // TODO: Might wish to encapsulate the frame index
-    pub fn next_frame(&self, frame_index: u64) -> VkResult<NextFrame> {
-        let frame_idx = frame_index as usize % self.resources.maximum_frames_in_flight();
-
-        let acquire_semaphore = self.resources.acquire_semaphores[frame_idx];
-
-        unsafe {
-            let acquire_info = vk::AcquireNextImageInfoKHR::default()
-                .device_mask(1)
-                .swapchain(self.swapchain)
-                .timeout(u64::MAX)
-                .semaphore(acquire_semaphore);
-
-            let (image_idx, _) = self.swapchain_loader.acquire_next_image2(&acquire_info)?;
-
-            let submit_semaphore = self.resources.submit_semaphores[image_idx as usize];
-            let swapchain_image = self.resources.images[image_idx as usize];
-
-            let next_frame = NextFrame {
-                image: swapchain_image,
-                image_idx,
-                submit_wait: acquire_semaphore,
-                submit_signal_present_wait: submit_semaphore,
-            };
-
-            Ok(next_frame)
-        }
-    }
-}
-
-impl Drop for Swapchain {
-    fn drop(&mut self) {
+    fn destroy_resources(&mut self) {
         unsafe {
             self.device.inner.device_wait_idle().unwrap();
 
@@ -253,19 +431,23 @@ impl Drop for Swapchain {
                 self.device.inner.destroy_semaphore(*semaphore, None);
             }
 
-            for image in &self.resources.images {
-                self.device.inner.destroy_image_view(image.view, None);
+            if !self.resources.image_handles.is_empty() {
+                let mut heap = self.heap.write().unwrap();
+                for ptr in &self.resources.image_handles {
+                    heap.free_infallible(*ptr);
+                }
             }
-
-            self.swapchain_loader
-                .destroy_swapchain(self.swapchain, None);
         }
     }
 }
 
-pub(super) struct NextFrame {
-    pub image: SwapchainImage,
-    pub image_idx: u32,
-    pub submit_wait: vk::Semaphore,
-    pub submit_signal_present_wait: vk::Semaphore,
+impl Drop for Swapchain {
+    fn drop(&mut self) {
+        self.destroy_resources();
+
+        unsafe {
+            self.swapchain_loader
+                .destroy_swapchain(self.swapchain, None);
+        }
+    }
 }

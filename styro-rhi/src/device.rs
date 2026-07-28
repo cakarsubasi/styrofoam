@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::Weak;
 use std::sync::atomic::AtomicI32;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use ash::VkResult;
@@ -20,13 +21,11 @@ use raw_window_handle::RawWindowHandle;
 use vk_mem::Alloc;
 
 use super::command::PipelineType;
-use super::command::SemaphoreInfo;
 use super::instance::DescriptorHeapProps;
 use super::instance::DeviceResult;
-use super::swapchain::NextFrame;
 
 use super::instance::Instance;
-use super::swapchain::{Surface, Swapchain};
+use super::swapchain::Swapchain;
 
 use super::*;
 
@@ -69,7 +68,7 @@ pub struct ShaderIR<'a> {
 pub(super) struct DeviceHandles {
     // Surface needs to be dropped before the instance, meaning if I move the surface out,
     // the instance needs to be behind a shared pointer so the device itself cannot drop it before the surface
-    pub surface: Surface,
+    //pub surface: Surface,
     pub inner: ash::Device,
     pub instance: Instance,
     pub pdevice: vk::PhysicalDevice,
@@ -188,7 +187,6 @@ pub struct Device {
     handles: Arc<DeviceHandles>,
     // Inner reference should be Weak maybe?
     heap: Arc<RwLock<DescriptorHeap>>,
-    swapchain: Option<Arc<RwLock<Swapchain>>>,
 }
 
 impl Device {
@@ -202,7 +200,6 @@ impl Device {
     ) -> Self {
         unsafe {
             let instance = Instance::new_with_presentation(display_handle);
-            let surface = instance.create_surface(display_handle, window_handle);
 
             let DeviceResult {
                 device,
@@ -210,7 +207,7 @@ impl Device {
                 graphics_queue_index: _,
                 compute_queue_index: _,
                 transfer_queue_index: _,
-            } = instance.create_device(&surface);
+            } = instance.create_device();
 
             let mut allocator_create_info =
                 vk_mem::AllocatorCreateInfo::new(&instance.instance, &device, pdevice);
@@ -228,12 +225,8 @@ impl Device {
             let extended_dynamic_state3 =
                 ext::extended_dynamic_state3::Device::load(&instance.instance, &device);
 
-            //let device_address_commands =
-            //    khr::device_address_commands::Device::load(&instance.instance, &device);
-
             let handles = Arc::new(DeviceHandles {
                 instance,
-                surface,
                 inner: device,
                 pdevice,
                 allocator: ManuallyDrop::new(allocator),
@@ -241,16 +234,13 @@ impl Device {
                 descriptor_heap: descriptor_heap_loader,
                 descriptor_heap_props: descriptor_heap_props.unwrap(),
                 extended_dynamic_state3,
-                //device_address_commands,
             });
 
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();
 
-            let swapchain = Swapchain::new(Arc::clone(&handles)).unwrap();
             Self {
                 handles: handles,
                 heap: Arc::new(RwLock::new(descriptor_heap)),
-                swapchain: Some(Arc::new(RwLock::new(swapchain))),
             }
         }
     }
@@ -266,15 +256,17 @@ impl Device {
     pub fn set_object_name(&self, obj: GpuPtr, name: &CStr) {
         let heap = self.heap.read().unwrap();
 
-        if let Some(ref res) = heap
-            .allocations
-            .get(&(obj.addr as vk_mem::RawAllocationHandle))
-        {
+        if let Some(ref res) = heap.allocations.get(&obj.handle) {
             match res {
                 HeapOwnedResource::Buffer(buffer) => {
                     self.handles.set_object_name(buffer.inner, name)
                 }
-                HeapOwnedResource::Image(image) => self.handles.set_object_name(image.inner, name),
+                HeapOwnedResource::Image(image) => {
+                    self.handles.set_object_name(image.inner, name);
+                    if let Some(view) = image.view {
+                        self.handles.set_object_name(view, name);
+                    }
+                }
             }
         }
     }
@@ -331,7 +323,7 @@ impl DeviceRHI for Device {
                 device: Arc::downgrade(&self.handles),
                 heap: Arc::downgrade(&self.heap),
                 queue: QueuePool::new(&self.device(), 0, command_pools, command_buffers_per_pool),
-                swapchain: self.swapchain.as_ref().map(|s| Arc::downgrade(&s)),
+                //swapchain: self.swapchain.as_ref().map(|s| Arc::downgrade(&s)),
             },
             QueueType::Compute => todo!(),
             QueueType::Copy => todo!(),
@@ -542,11 +534,31 @@ impl DeviceRHI for Device {
     }
 }
 
+impl SwapchainDeviceRHI for Device {
+    type Swapchain = Swapchain;
+
+    fn create_swapchain(
+        &self,
+        queue: &crate::Queue,
+        window: &crate::WindowSystemData,
+        info: &crate::SwapchainInfo,
+    ) -> Self::Swapchain {
+        unsafe {
+            let handles = &self.handles;
+            let heap = Arc::clone(&self.heap);
+            let present_queue = queue.queue.queue;
+            let swapchain =
+                Swapchain::new(Arc::clone(&handles), heap, window, present_queue, info).unwrap();
+
+            swapchain
+        }
+    }
+}
+
 pub struct Queue {
     device: Weak<DeviceHandles>,
     heap: Weak<RwLock<DescriptorHeap>>,
     queue: QueuePool,
-    swapchain: Option<Weak<RwLock<Swapchain>>>,
 }
 
 impl Queue {
@@ -571,36 +583,6 @@ impl Queue {
             idx + 1,
             command_pool.command_buffers.len()));
         *command_buffer
-    }
-
-    pub fn begin_recording_presentation(
-        &mut self,
-        command_pool: u32,
-        frame_index: u64,
-    ) -> Result<<Self as QueueRHI>::CommandBuffer, Error> {
-        let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
-        let mut swapchain = swapchain.write().unwrap();
-        let next_frame = match swapchain.next_frame(frame_index) {
-            Ok(next_frame) => next_frame,
-            Err(_err) => {
-                swapchain.recreate()?;
-                return Err(Error::SwapchainOutOfDate);
-            }
-        };
-
-        let mut command_buffer = self.begin_recording(command_pool);
-        command_buffer.signal.push(SemaphoreInfo {
-            semaphore: next_frame.submit_signal_present_wait,
-            value: 0,
-            stage: vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-        });
-        command_buffer.wait.push(SemaphoreInfo {
-            semaphore: next_frame.submit_wait,
-            value: 0,
-            stage: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-        });
-        command_buffer.present = Some(next_frame);
-        Ok(command_buffer)
     }
 
     fn submit_impl(
@@ -675,16 +657,13 @@ impl Queue {
     }
 }
 
-fn find_frame(cbs: &[CommandBuffer]) -> Option<(&CommandBuffer, &NextFrame)> {
-    cbs.iter()
-        .find_map(|cb| cb.present.as_ref().and_then(|present| Some((cb, present))))
-}
-
 impl Drop for Queue {
     fn drop(&mut self) {
         let device = self.device.upgrade().unwrap();
 
         unsafe {
+            device.inner.queue_wait_idle(self.queue.queue).unwrap();
+
             for command_pool in &self.queue.command_pools {
                 command_pool.destroy(&device.inner)
             }
@@ -717,64 +696,45 @@ impl QueueRHI for Queue {
                 signal: vec![],
                 wait: vec![],
                 layout_transition_queue: vec![],
-                present: None,
+                presentation: None,
             }
         }
     }
 
     fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
-        let frame = find_frame(command_buffers);
-
-        if let Some((cb, frame)) = frame {
-            unsafe {
-                cb.transition_image_layout(
-                    frame.image.image,
-                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                    vk::ImageLayout::PRESENT_SRC_KHR,
-                    vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                    vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                    vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                    vk::AccessFlags2::empty(),
-                );
+        for cb in command_buffers {
+            if let Some(swapchain_image) = cb.presentation {
+                let heap = cb.heap.read().unwrap();
+                let image = heap.ptr_to_image(swapchain_image);
+                unsafe {
+                    cb.transition_image_layout(
+                        image.inner,
+                        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                        vk::ImageLayout::PRESENT_SRC_KHR,
+                        vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                        vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                        vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                        vk::AccessFlags2::empty(),
+                    );
+                }
             }
         }
 
         self.submit_impl(command_buffers)?;
 
-        if let Some((_, frame)) = frame {
-            let swapchain = self.swapchain.as_ref().unwrap().upgrade().unwrap();
-            let mut swapchain = swapchain.write().unwrap();
-
-            let queue = &self.queue;
-
-            let swapchains = [swapchain.swapchain];
-            let wait_semaphores = [frame.submit_signal_present_wait];
-            let indices = [frame.image_idx];
-            let present_info = vk::PresentInfoKHR::default()
-                .swapchains(&swapchains)
-                .wait_semaphores(&wait_semaphores)
-                .image_indices(&indices);
-            unsafe {
-                let result = swapchain
-                    .swapchain_loader
-                    .queue_present(queue.queue, &present_info);
-                if result.is_err() {
-                    swapchain.recreate().inspect_err(|_| {})?; // if not ready, we will just try again next time
-                }
-            }
-        }
         Ok(())
     }
 }
 
 // Might consider having two hash maps for either type and even splitting GpuPtr
-enum HeapOwnedResource {
+pub(crate) enum HeapOwnedResource {
     Buffer(Buffer),
     Image(Image),
 }
 
 pub(super) struct DescriptorHeap {
-    allocations: HashMap<vk_mem::RawAllocationHandle, HeapOwnedResource>,
+    handle_counter: AtomicU64,
+    allocations: HashMap<u64, HeapOwnedResource>,
     device: Arc<DeviceHandles>,
 }
 
@@ -801,6 +761,7 @@ impl DescriptorHeap {
         eprintln!("Maximum samplers: {}", maximum_samplers);
 
         Ok(Self {
+            handle_counter: AtomicU64::new(1),
             device,
             allocations: HashMap::new(),
         })
@@ -888,22 +849,83 @@ impl DescriptorHeap {
     }
 
     pub fn ptr_to_buffer(&self, ptr: GpuPtr) -> &Buffer {
-        match self
-            .allocations
-            .get(&(ptr.addr as vk_mem::RawAllocationHandle))
-        {
+        match self.allocations.get(&ptr.handle) {
             Some(HeapOwnedResource::Buffer(buffer)) => buffer,
             _ => panic!(),
         }
     }
 
     pub fn ptr_to_image(&self, ptr: GpuPtr) -> &Image {
-        match self
-            .allocations
-            .get(&(ptr.addr as vk_mem::RawAllocationHandle))
-        {
+        match self.allocations.get(&ptr.handle) {
             Some(HeapOwnedResource::Image(image)) => image,
             _ => panic!(),
+        }
+    }
+
+    fn create_buffer(&mut self, desc: &BufferDesc) -> GpuPtr {
+        let buffer = Buffer::new(Arc::clone(&self.device), desc).unwrap();
+
+        let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
+
+        let size = buffer.size as u32;
+        self.allocations
+            .insert(handle, HeapOwnedResource::Buffer(buffer));
+
+        GpuPtr {
+            handle,
+            offset: 0,
+            size,
+        }
+    }
+
+    fn create_image(&mut self, desc: &ImageDesc) -> GpuPtr {
+        // TODO: use format
+        let image = Image::new(Arc::clone(&self.device), desc);
+
+        let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
+
+        let size = image.len() as u32;
+        self.allocations
+            .insert(handle, HeapOwnedResource::Image(image));
+
+        GpuPtr {
+            handle,
+            offset: 0,
+            size,
+        }
+    }
+
+    fn free(&mut self, ptr: GpuPtr) {
+        let res = self.free_infallible(ptr);
+
+        if let None = res {
+            panic!("Double free.");
+        } else if let Some(HeapOwnedResource::Image(image)) = res {
+            if image.is_swapchain_image() {
+                panic!("Swapchain images should not be passed to delete_ptr()");
+            }
+        }
+    }
+
+    pub fn free_infallible(&mut self, ptr: GpuPtr) -> Option<HeapOwnedResource> {
+        if ptr.is_null() {
+            return None;
+        }
+
+        self.allocations.remove(&ptr.handle)
+    }
+
+    pub fn insert_swapchain_image(&mut self, image: Image) -> GpuPtr {
+        let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
+
+        let size = image.len() as u32;
+        self.allocations
+            .insert(handle, HeapOwnedResource::Image(image));
+
+        GpuPtr {
+            handle,
+            offset: 0,
+            size,
         }
     }
 }
@@ -919,71 +941,27 @@ impl Drop for DescriptorHeap {
 impl GpuPtr {
     pub fn null() -> Self {
         Self {
-            addr: null_mut(),
+            handle: 0,
             offset: 0,
             size: 0,
         }
     }
 
     pub fn is_null(&self) -> bool {
-        self.addr.is_null()
+        self.handle == 0
     }
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct GpuPtr {
-    addr: *mut u8,
+    handle: u64,
     pub offset: u32,
     pub size: u32,
 }
 
-impl DescriptorHeap {
-    fn create_buffer(&mut self, desc: &BufferDesc) -> GpuPtr {
-        let buffer = Buffer::new(Arc::clone(&self.device), desc).unwrap();
-
-        let raw = buffer.allocation.get_raw();
-        let size = buffer.size as u32;
-        self.allocations
-            .insert(raw, HeapOwnedResource::Buffer(buffer));
-
-        GpuPtr {
-            addr: raw as *mut u8,
-            offset: 0,
-            size,
-        }
-    }
-
-    fn create_image(&mut self, desc: &ImageDesc) -> GpuPtr {
-        // TODO: use format
-        let image = Image::new(Arc::clone(&self.device), desc);
-
-        let raw = image.allocation.get_raw();
-
-        let size = image.size as u32;
-        self.allocations
-            .insert(raw, HeapOwnedResource::Image(image));
-
-        GpuPtr {
-            addr: raw as *mut u8,
-            offset: 0,
-            size,
-        }
-    }
-
-    fn free(&mut self, ptr: GpuPtr) {
-        let res = self
-            .allocations
-            .remove(&(ptr.addr as vk_mem::RawAllocationHandle));
-
-        if let None = res {
-            panic!("Double free.");
-        }
-    }
-}
-
 impl BufferUsage {
-    pub fn descriptor_type(&self) -> vk::DescriptorType {
+    pub(crate) fn descriptor_type(&self) -> vk::DescriptorType {
         match self {
             Self::Uniform => vk::DescriptorType::UNIFORM_BUFFER,
             Self::Storage => vk::DescriptorType::STORAGE_BUFFER,
@@ -1168,14 +1146,51 @@ fn image_type_to_image_view_type(ty: vk::ImageType) -> vk::ImageViewType {
     }
 }
 
-pub struct Image {
-    pub(super) device: Arc<DeviceHandles>,
-    pub(super) inner: vk::Image,
-    allocation: vk_mem::Allocation,
-    pub(super) view: Option<vk::ImageView>,
-    pub(super) desc: ImageDesc,
-    pub(super) current_layout: Cell<vk::ImageLayout>,
-    pub(super) size: usize,
+impl ImageUsage {
+    fn to_vk(&self) -> vk::ImageUsageFlags {
+        match self {
+            ImageUsage::Sampled => {
+                vk::ImageUsageFlags::SAMPLED
+                    | vk::ImageUsageFlags::TRANSFER_SRC
+                    | vk::ImageUsageFlags::TRANSFER_DST
+            }
+            ImageUsage::Storage => {
+                vk::ImageUsageFlags::STORAGE
+                    | vk::ImageUsageFlags::TRANSFER_SRC
+                    | vk::ImageUsageFlags::TRANSFER_DST
+            }
+            ImageUsage::Attachment => {
+                vk::ImageUsageFlags::INPUT_ATTACHMENT
+                    | vk::ImageUsageFlags::TRANSFER_SRC
+                    | vk::ImageUsageFlags::TRANSFER_DST
+            }
+        }
+    }
+}
+
+pub(crate) struct AllocatedImageData {
+    pub device: Arc<DeviceHandles>,
+    pub size: usize,
+    pub allocation: vk_mem::Allocation,
+}
+
+pub(crate) struct SwapchainImageData {
+    pub idx: u32,
+    pub submit_wait: Cell<vk::Semaphore>,
+    pub submit_signal_present_wait: Cell<vk::Semaphore>,
+}
+
+pub(crate) enum ImageData {
+    Allocated(AllocatedImageData),
+    Swapchain(SwapchainImageData),
+}
+
+pub(crate) struct Image {
+    pub inner: vk::Image,
+    pub view: Option<vk::ImageView>,
+    pub desc: ImageDesc,
+    pub current_layout: Cell<vk::ImageLayout>,
+    pub data: ImageData,
 }
 
 impl Image {
@@ -1196,7 +1211,7 @@ impl Image {
                 .array_layers(description.layer_count)
                 .samples(description.sample_count())
                 .tiling(vk::ImageTiling::OPTIMAL)
-                .usage(description.usage | vk::ImageUsageFlags::TRANSFER_DST)
+                .usage(description.usage.to_vk())
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .initial_layout(layout)
             //.initial_layout(vk::ImageLayout::UNDEFINED);
@@ -1215,15 +1230,60 @@ impl Image {
 
             let memory_req = device.inner.get_image_memory_requirements(image);
 
-            Self {
+            let view = match description.usage {
+                ImageUsage::Attachment => Some(
+                    device
+                        .inner
+                        .create_image_view(
+                            &vk::ImageViewCreateInfo::default()
+                                .view_type(image_type_to_image_view_type(description.ty))
+                                .format(description.format)
+                                .image(image)
+                                .subresource_range(vk::ImageSubresourceRange {
+                                    aspect_mask: vk::ImageAspectFlags::COLOR, // TODO: add multiple attachment types or try to infer the attachment type
+                                    base_mip_level: 0,
+                                    level_count: description.mip_count,
+                                    base_array_layer: 0,
+                                    layer_count: description.layer_count,
+                                }),
+                            None,
+                        )
+                        .unwrap(),
+                ),
+                _ => None,
+            };
+
+            let data = AllocatedImageData {
                 device,
-                inner: image,
+                size: memory_req.size as usize,
                 allocation,
-                view: None,
+            };
+
+            Self {
+                inner: image,
+                view,
                 desc: description.clone(),
                 current_layout: Cell::new(layout),
-                size: memory_req.size as usize,
+                data: ImageData::Allocated(data),
             }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match &self.data {
+            ImageData::Allocated(allocated_image_data) => allocated_image_data.size,
+            ImageData::Swapchain(swapchain_image_data) => 9999999999, // need to figure this out
+        }
+    }
+
+    pub fn is_swapchain_image(&self) -> bool {
+        matches!(self.data, ImageData::Swapchain(_))
+    }
+
+    pub fn extent2d(&self) -> vk::Extent2D {
+        vk::Extent2D {
+            width: self.desc.dimensions[0],
+            height: self.desc.dimensions[1],
         }
     }
 }
@@ -1231,9 +1291,15 @@ impl Image {
 impl Drop for Image {
     fn drop(&mut self) {
         unsafe {
-            self.device
-                .allocator
-                .destroy_image(self.inner, &mut self.allocation);
+            // Only allocated images must be freed, swapchain images are freed with the swapchain
+            if let ImageData::Allocated(data) = &mut self.data {
+                data.device
+                    .allocator
+                    .destroy_image(self.inner, &mut data.allocation);
+                if let Some(view) = self.view {
+                    data.device.inner.destroy_image_view(view, None);
+                }
+            }
         }
     }
 }

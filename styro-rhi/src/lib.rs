@@ -9,10 +9,9 @@ mod instance;
 /// Swapchain, surface, and presentation related functionality
 mod swapchain;
 
-use self::swapchain::SwapchainImage;
-
-pub use self::command::{CommandBuffer, Pipeline};
-pub use self::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
+pub use command::{CommandBuffer, Pipeline};
+pub use device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
+pub use swapchain::Swapchain;
 
 /// Re-export ash just in case
 pub use ash;
@@ -58,14 +57,8 @@ pub type LoadOp = ash::vk::AttachmentLoadOp;
 pub type StoreOp = ash::vk::AttachmentStoreOp;
 pub type Clear = ash::vk::ClearValue; // Should probably newtype an enum since unions are not ergonomic in rust
 
-#[derive(Clone, Copy)]
-pub enum Framebuffer {
-    Image(GpuPtr),
-    Swapchain(SwapchainImage),
-}
-
 pub struct RenderTarget {
-    pub image: Framebuffer,
+    pub image: GpuPtr,
     pub load_op: LoadOp,
     pub store_op: StoreOp,
     pub clear_value: ash::vk::ClearValue,
@@ -73,7 +66,7 @@ pub struct RenderTarget {
 impl Default for RenderTarget {
     fn default() -> Self {
         Self {
-            image: Framebuffer::Image(GpuPtr::null()),
+            image: GpuPtr::null(),
             load_op: LoadOp::CLEAR,
             store_op: StoreOp::STORE,
             clear_value: Default::default(),
@@ -138,6 +131,12 @@ pub struct BufferDesc {
     pub usage: BufferUsage,
 }
 #[derive(Clone, Copy)]
+pub enum ImageUsage {
+    Sampled,
+    Storage,
+    Attachment,
+}
+#[derive(Clone, Copy)]
 pub struct ImageDesc {
     pub ty: ash::vk::ImageType,
     pub dimensions: UVec3,
@@ -145,7 +144,7 @@ pub struct ImageDesc {
     pub layer_count: u32,
     pub sample_count: u32,
     pub format: ash::vk::Format,
-    pub usage: ash::vk::ImageUsageFlags,
+    pub usage: ImageUsage,
 }
 impl Default for ImageDesc {
     fn default() -> Self {
@@ -156,7 +155,7 @@ impl Default for ImageDesc {
             layer_count: 1,
             sample_count: 1,
             format: ash::vk::Format::UNDEFINED,
-            usage: ash::vk::ImageUsageFlags::SAMPLED,
+            usage: ImageUsage::Sampled,
         }
     }
 }
@@ -309,4 +308,52 @@ pub trait CommandRHI {
     // fn draw_indexed_instanced_indirect_multi(&mut self, ...);
     fn draw_meshlets(&mut self, data: PushData, dimension: UVec3);
     fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr);
+}
+
+// Surface and Swapchain
+
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
+
+#[repr(u32)]
+pub enum WindowingSystem {
+    None = 0,
+    AppKit = 1,
+    UiKit = 2,
+    Windows = 3,
+    Xlib = 4,
+    Xcb = 5,
+    Wayland = 6,
+}
+
+pub struct WindowSystemData {
+    pub display_handle: RawDisplayHandle,
+    pub window_handle: RawWindowHandle,
+}
+pub type ColorSpace = ash::vk::ColorSpaceKHR;
+#[derive(Clone, Copy)]
+pub struct SwapchainInfo {
+    pub size: u32,
+    pub format: ash::vk::Format,
+    pub color_space: ColorSpace,
+}
+
+pub trait SwapchainDeviceRHI {
+    type Swapchain;
+
+    fn create_swapchain(
+        &self,
+        queue: &Queue,
+        window: &WindowSystemData,
+        info: &SwapchainInfo,
+    ) -> Self::Swapchain;
+}
+
+pub trait SwapchainCommandRHI {
+    fn begin_presenting(&mut self, swapchain_image: GpuPtr);
+}
+
+pub trait SwapchainRHI {
+    fn acquire_next_image(&mut self) -> Result<GpuPtr, Error>;
+
+    fn present(&mut self, swapchain_image: GpuPtr) -> Result<(), Error>;
 }
