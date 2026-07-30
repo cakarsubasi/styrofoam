@@ -20,6 +20,8 @@ use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 use vk_mem::Alloc;
 
+use crate::command::LayoutTransition;
+
 use super::command::PipelineType;
 use super::instance::DescriptorHeapProps;
 use super::instance::DeviceResult;
@@ -704,18 +706,15 @@ impl QueueRHI for Queue {
     fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
         for cb in command_buffers {
             if let Some(swapchain_image) = cb.presentation {
-                let heap = cb.heap.read().unwrap();
-                let image = heap.ptr_to_image(swapchain_image);
                 unsafe {
-                    cb.transition_image_layout(
-                        image.inner,
-                        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                        vk::ImageLayout::PRESENT_SRC_KHR,
-                        vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                        vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                        vk::AccessFlags2::empty(),
-                    );
+                    cb.multiple_layout_transition(&[LayoutTransition {
+                        image: swapchain_image,
+                        new_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+                        src_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                        src_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                        dst_stage_mask: vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                        dst_access_mask: vk::AccessFlags2::empty(),
+                    }]);
                 }
             }
         }

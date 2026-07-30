@@ -99,7 +99,7 @@ impl CommandBuffer {
         dst_access_mask: vk::AccessFlags2,
     ) {
         if old_layout == new_layout {
-            return;
+            //return;
         }
         let image_memory_barrier = [vk::ImageMemoryBarrier2::default()
             .src_stage_mask(src_stage_mask)
@@ -632,10 +632,10 @@ impl SwapchainCommandRHI for CommandBuffer {
 }
 
 pub(super) struct LayoutTransition {
-    image: GpuPtr,
-    new_layout: vk::ImageLayout,
-    src_stage_mask: vk::PipelineStageFlags2,
-    src_access_mask: vk::AccessFlags2,
-    dst_stage_mask: vk::PipelineStageFlags2,
-    dst_access_mask: vk::AccessFlags2,
+    pub image: GpuPtr,
+    pub new_layout: vk::ImageLayout,
+    pub src_stage_mask: vk::PipelineStageFlags2,
+    pub src_access_mask: vk::AccessFlags2,
+    pub dst_stage_mask: vk::PipelineStageFlags2,
+    pub dst_access_mask: vk::AccessFlags2,
 }
