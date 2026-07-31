@@ -6,6 +6,7 @@ Inspired by Sebbi's [No Graphics API](https://www.sebastianaaltonen.com/blog/no-
 
 ### TODO:
 
+- Wrap remaining Vulkan structures.
 - C interface.
 - Proper image copies. (Maybe also VK_EXT_host_image_copy?)
 - More documentation and a sensible safety boundary. Basically, we want to avoid making everything unsafe but the functions we mark as unsafe should have sensible usage preconditions. In addition, catching all incorrect API usage especially on the device side is out of scope.
