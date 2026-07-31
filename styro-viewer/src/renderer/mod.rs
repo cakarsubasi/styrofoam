@@ -382,7 +382,7 @@ impl TextureRenderData {
             ..Default::default()
         });
         command_buffer.set_pipeline(&self.pipeline);
-        let push_data = [0u32, 0u32];
+        let push_data = [17u32, 17u32];
         command_buffer.draw_indexed_instanced(
             &bytemuck::cast_slice(push_data.as_slice()),
             self.indices,
