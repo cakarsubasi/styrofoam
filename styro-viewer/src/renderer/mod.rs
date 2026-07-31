@@ -162,6 +162,8 @@ impl Renderer {
 
         if *next_frame == 1 {
             render_data.upload(&mut self.device, &mut command_buffer);
+        } else {
+            render_data.draw(&self.device, &mut command_buffer, swapchain_image);
         }
 
         render_data.draw(&self.device, &mut command_buffer, swapchain_image);
@@ -242,7 +244,7 @@ pub struct TextureRenderData {
 
 impl TextureRenderData {
     fn new(device: &mut Device) -> Self {
-        let mut spv = File::open("texture.spv").unwrap();
+        let mut spv = File::open("res/spirv/texture.spv").unwrap();
         let text = read_spv(&mut spv).unwrap();
         let vertex_ir = ShaderIR {
             bytes: &text,
@@ -344,17 +346,17 @@ impl TextureRenderData {
     fn upload(&self, device: &mut Device, command_buffer: &mut CommandBuffer) {
         command_buffer.image_barrier(
             Stage::HOST,
-            Stage::empty(),
+            Stage::TRANSFER,
             self.texture,
-            vk::ImageLayout::GENERAL,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         );
         command_buffer.copy_to_texture(self.texture, self.staging_buffer);
     }
 
     fn draw(&self, device: &Device, command_buffer: &mut CommandBuffer, framebuffer: GpuPtr) {
         command_buffer.image_barrier(
-            Stage::TRANSFER,
-            Stage::FRAGMENT_SHADER,
+            Stage::HOST,
+            Stage::empty(),
             self.texture,
             vk::ImageLayout::GENERAL,
         );
