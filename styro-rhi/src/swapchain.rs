@@ -4,12 +4,8 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use ash::VkResult;
-use ash::ext;
 use ash::khr;
 use ash::vk;
-use ash::vk::ImageType;
-use raw_window_handle::RawDisplayHandle;
-use raw_window_handle::RawWindowHandle;
 
 use crate::Error;
 use crate::GpuPtr;
@@ -38,16 +34,32 @@ impl Drop for Surface {
     }
 }
 
+pub struct SwapchainHandle {
+    device: Arc<DeviceHandles>,
+    swapchain: vk::SwapchainKHR,
+    swapchain_loader: khr::swapchain::Device,
+}
+
+impl Drop for SwapchainHandle {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.inner.device_wait_idle().unwrap();
+
+            self.swapchain_loader
+                .destroy_swapchain(self.swapchain, None);
+        }
+    }
+}
+
 pub struct Swapchain {
     // device data
     device: Arc<DeviceHandles>,
     heap: Arc<RwLock<DescriptorHeap>>,
+    // swapchain data
+    inner: SwapchainHandle,
     // surface associated with this swapchain
     surface: Surface,
-    // swapchain data
     info: SwapchainInfo,
-    pub(super) swapchain: vk::SwapchainKHR,
-    pub(super) swapchain_loader: khr::swapchain::Device,
     resources: PresentationResources,
     frame_index: u64,
     present_queue: vk::Queue,
@@ -63,11 +75,15 @@ impl SwapchainRHI for Swapchain {
         unsafe {
             let acquire_info = vk::AcquireNextImageInfoKHR::default()
                 .device_mask(1)
-                .swapchain(self.swapchain)
+                .swapchain(self.inner.swapchain)
                 .timeout(u64::MAX)
                 .semaphore(acquire_semaphore);
 
-            let (image_idx, _) = match self.swapchain_loader.acquire_next_image2(&acquire_info) {
+            let (image_idx, _) = match self
+                .inner
+                .swapchain_loader
+                .acquire_next_image2(&acquire_info)
+            {
                 Ok(res) => res,
                 Err(_) => {
                     let _ = self.recreate()?;
@@ -113,14 +129,18 @@ impl SwapchainRHI for Swapchain {
         let result = if let ImageData::Swapchain(data) = &swapchain_image.data {
             let queue = self.present_queue;
 
-            let swapchains = [self.swapchain];
+            let swapchains = [self.inner.swapchain];
             let wait_semaphores = [data.submit_signal_present_wait.get()];
             let indices = [data.idx];
             let present_info = vk::PresentInfoKHR::default()
                 .swapchains(&swapchains)
                 .wait_semaphores(&wait_semaphores)
                 .image_indices(&indices);
-            unsafe { self.swapchain_loader.queue_present(queue, &present_info) }
+            unsafe {
+                self.inner
+                    .swapchain_loader
+                    .queue_present(queue, &present_info)
+            }
         } else {
             unreachable!()
         };
@@ -188,21 +208,41 @@ impl Swapchain {
         }
     }
 
+    pub(crate) fn recreate(&mut self) -> VkResult<()> {
+        // swapchain lost due to surface caps becoming outdated
+        let surface_caps = unsafe {
+            self.surface
+                .surface_loader
+                .get_physical_device_surface_capabilities(self.device.pdevice, self.surface.inner)?
+        };
+
+        let swapchain = Self::create_or_recreate_swapchain(
+            &self.inner.swapchain_loader,
+            Arc::clone(&self.device),
+            &self.surface,
+            self.inner.swapchain,
+            &self.info,
+            surface_caps,
+        )?;
+        self.inner = swapchain;
+        self.recreate_resources(&surface_caps)
+    }
+
     fn create_or_recreate_swapchain(
         swapchain_loader: &khr::swapchain::Device,
-        device: &DeviceHandles,
+        device: Arc<DeviceHandles>,
         surface: &Surface,
         old_swapchain: vk::SwapchainKHR,
         info: &SwapchainInfo,
         surface_caps: vk::SurfaceCapabilitiesKHR,
-    ) -> Result<vk::SwapchainKHR, vk::Result> {
+    ) -> Result<SwapchainHandle, vk::Result> {
         let surface_loader = &surface.surface_loader;
 
         if surface_caps.current_extent.height == 0 || surface_caps.current_extent.width == 0 {
             return Err(vk::Result::NOT_READY);
         }
 
-        let surface_format = Self::choose_surface_format(&device, surface_loader, &surface)?;
+        //let surface_format = Self::choose_surface_format(&device, surface_loader, &surface)?;
 
         let present_modes = unsafe {
             surface_loader
@@ -230,7 +270,14 @@ impl Swapchain {
             .clipped(true)
             .old_swapchain(old_swapchain);
 
-        unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }
+        let new_swapchain =
+            unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) };
+
+        new_swapchain.map(|swapchain| SwapchainHandle {
+            device,
+            swapchain,
+            swapchain_loader: swapchain_loader.clone(),
+        })
     }
 
     unsafe fn create_swapchain(
@@ -252,7 +299,7 @@ impl Swapchain {
 
         let swapchain = Self::create_or_recreate_swapchain(
             &swapchain_loader,
-            &device,
+            Arc::clone(&device),
             &surface,
             swapchain,
             info,
@@ -263,8 +310,7 @@ impl Swapchain {
             device,
             heap,
             surface,
-            swapchain,
-            swapchain_loader,
+            inner: swapchain,
             resources: PresentationResources::new(),
             frame_index: 0,
             info: *info,
@@ -285,7 +331,10 @@ impl Swapchain {
             let device = &self.device;
             let mut heap = self.heap.write().unwrap();
 
-            let swapchain_images = self.swapchain_loader.get_swapchain_images(self.swapchain)?;
+            let swapchain_images = self
+                .inner
+                .swapchain_loader
+                .get_swapchain_images(self.inner.swapchain)?;
 
             let swapchain_images = swapchain_images
                 .into_iter()
@@ -314,7 +363,7 @@ impl Swapchain {
                         inner: image,
                         view: Some(view),
                         desc: ImageDesc {
-                            ty: ImageType::TYPE_2D,
+                            ty: vk::ImageType::TYPE_2D,
                             dimensions,
                             mip_count: 1,
                             layer_count: 1,
@@ -399,26 +448,6 @@ impl Swapchain {
         }
     }
 
-    pub(crate) fn recreate(&mut self) -> VkResult<()> {
-        // swapchain lost due to surface caps becoming outdated
-        let surface_caps = unsafe {
-            self.surface
-                .surface_loader
-                .get_physical_device_surface_capabilities(self.device.pdevice, self.surface.inner)?
-        };
-
-        let swapchain = Self::create_or_recreate_swapchain(
-            &self.swapchain_loader,
-            &self.device,
-            &self.surface,
-            self.swapchain,
-            &self.info,
-            surface_caps,
-        )?;
-        self.swapchain = swapchain;
-        self.recreate_resources(&surface_caps)
-    }
-
     fn destroy_resources(&mut self) {
         unsafe {
             self.device.inner.device_wait_idle().unwrap();
@@ -444,10 +473,5 @@ impl Swapchain {
 impl Drop for Swapchain {
     fn drop(&mut self) {
         self.destroy_resources();
-
-        unsafe {
-            self.swapchain_loader
-                .destroy_swapchain(self.swapchain, None);
-        }
     }
 }
