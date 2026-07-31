@@ -895,23 +895,31 @@ impl DescriptorHeap {
     }
 
     fn free(&mut self, ptr: GpuPtr) {
-        let res = self.free_infallible(ptr);
+        let res = self.allocations.remove(&ptr.handle);
 
         if let None = res {
             panic!("Double free.");
         } else if let Some(HeapOwnedResource::Image(image)) = res {
             if image.is_swapchain_image() {
                 panic!("Swapchain images should not be passed to delete_ptr()");
+            } else {
+                image.free_resources(&self.device);
             }
+        } else if let Some(HeapOwnedResource::Buffer(buffer)) = res {
+            buffer.free_resources(&self.device);
         }
     }
 
-    pub fn free_infallible(&mut self, ptr: GpuPtr) -> Option<HeapOwnedResource> {
+    pub fn free_infallible(&mut self, ptr: GpuPtr) {
         if ptr.is_null() {
-            return None;
+            return;
         }
 
-        self.allocations.remove(&ptr.handle)
+        match self.allocations.remove(&ptr.handle) {
+            Some(HeapOwnedResource::Buffer(buffer)) => buffer.free_resources(&self.device),
+            Some(HeapOwnedResource::Image(image)) => image.free_resources(&self.device),
+            None => {}
+        }
     }
 
     pub fn insert_swapchain_image(&mut self, image: Image) -> GpuPtr {
@@ -933,6 +941,13 @@ impl Drop for DescriptorHeap {
     fn drop(&mut self) {
         unsafe {
             self.device.inner.device_wait_idle().unwrap();
+
+            for (_, res) in self.allocations.drain() {
+                match res {
+                    HeapOwnedResource::Buffer(buffer) => buffer.free_resources(&self.device),
+                    HeapOwnedResource::Image(image) => image.free_resources(&self.device),
+                }
+            }
         }
     }
 }
@@ -1001,7 +1016,6 @@ impl Memory {
 }
 
 pub(super) struct Buffer {
-    pub device: Arc<DeviceHandles>,
     pub inner: vk::Buffer,
     allocation: vk_mem::Allocation,
     size: u64,
@@ -1038,7 +1052,6 @@ impl Buffer {
             };
 
             Ok(Self {
-                device,
                 inner: buffer,
                 allocation,
                 size: size,
@@ -1048,52 +1061,52 @@ impl Buffer {
         }
     }
 
-    #[allow(unused)]
-    pub fn copy_to_buffer(&self, data: &[u8], dst_offset: u64) {
-        if data
-            .len()
-            .checked_add(dst_offset as usize)
-            .expect("Buffer offset overflow")
-            > self.len() as usize
-        {
-            panic!("")
-        }
-        unsafe {
-            // This is safe with &self because VMA uses an internal mutex
-            self.device
-                .allocator
-                .copy_memory_to_allocation(&self.allocation, data, dst_offset)
-                .unwrap();
-        }
-    }
+    //#[allow(unused)]
+    //pub fn copy_to_buffer(&self, data: &[u8], dst_offset: u64) {
+    //    if data
+    //        .len()
+    //        .checked_add(dst_offset as usize)
+    //        .expect("Buffer offset overflow")
+    //        > self.len() as usize
+    //    {
+    //        panic!("")
+    //    }
+    //    unsafe {
+    //        // This is safe with &self because VMA uses an internal mutex
+    //        self.device
+    //            .allocator
+    //            .copy_memory_to_allocation(&self.allocation, data, dst_offset)
+    //            .unwrap();
+    //    }
+    //}
 
-    #[allow(unused)]
-    pub fn with_mapping(&mut self, f: impl FnOnce(&mut [u8])) {
-        // Safety: &mut self is required because calling any buffer function inside
-        // f would create aliasing &mut
-        unsafe {
-            let size = self.len();
-            let mapping = self
-                .device
-                .allocator
-                .map_memory(&mut self.allocation)
-                .unwrap();
+    //#[allow(unused)]
+    //pub fn with_mapping(&mut self, f: impl FnOnce(&mut [u8])) {
+    //    // Safety: &mut self is required because calling any buffer function inside
+    //    // f would create aliasing &mut
+    //    unsafe {
+    //        let size = self.len();
+    //        let mapping = self
+    //            .device
+    //            .allocator
+    //            .map_memory(&mut self.allocation)
+    //            .unwrap();
 
-            let mapping = slice::from_raw_parts_mut(mapping, size as usize);
-            f(mapping);
+    //        let mapping = slice::from_raw_parts_mut(mapping, size as usize);
+    //        f(mapping);
 
-            self.device.allocator.unmap_memory(&mut self.allocation);
-        }
-    }
+    //        self.device.allocator.unmap_memory(&mut self.allocation);
+    //    }
+    //}
 
     pub fn len(&self) -> u64 {
         self.size
     }
 
     #[allow(unused)]
-    fn device_address(&self) -> vk::DeviceAddress {
+    fn device_address(&self, device: &DeviceHandles) -> vk::DeviceAddress {
         unsafe {
-            let address = self.device.inner.get_buffer_device_address(
+            let address = device.inner.get_buffer_device_address(
                 &vk::BufferDeviceAddressInfo::default().buffer(self.inner),
             );
 
@@ -1102,22 +1115,19 @@ impl Buffer {
     }
 
     #[allow(unused)]
-    pub fn device_address_range(&self) -> vk::DeviceAddressRangeKHR {
-        let address = self.device_address();
+    pub fn device_address_range(&self, device: &DeviceHandles) -> vk::DeviceAddressRangeKHR {
+        let address = self.device_address(device);
         let size = self.len();
         vk::DeviceAddressRangeKHR { address, size }
     }
-}
 
-impl Drop for Buffer {
-    fn drop(&mut self) {
+    pub fn free_resources(mut self, device: &DeviceHandles) {
         unsafe {
-            println!("Destroying buffer");
             if let Some(_) = self.mapped_ptr {
-                self.device.allocator.unmap_memory(&mut self.allocation);
+                device.allocator.unmap_memory(&mut self.allocation);
             }
 
-            self.device
+            device
                 .allocator
                 .destroy_buffer(self.inner, &mut self.allocation);
         }
@@ -1168,7 +1178,6 @@ impl ImageUsage {
 }
 
 pub(crate) struct AllocatedImageData {
-    pub device: Arc<DeviceHandles>,
     pub size: usize,
     pub allocation: vk_mem::Allocation,
 }
@@ -1253,7 +1262,7 @@ impl Image {
             };
 
             let data = AllocatedImageData {
-                device,
+                //device,
                 size: memory_req.size as usize,
                 allocation,
             };
@@ -1285,19 +1294,17 @@ impl Image {
             height: self.desc.dimensions[1],
         }
     }
-}
 
-impl Drop for Image {
-    fn drop(&mut self) {
+    pub fn free_resources(mut self, device: &DeviceHandles) {
         unsafe {
-            // Only allocated images must be freed, swapchain images are freed with the swapchain
+            if let Some(view) = self.view {
+                device.inner.destroy_image_view(view, None);
+            }
+
             if let ImageData::Allocated(data) = &mut self.data {
-                data.device
+                device
                     .allocator
                     .destroy_image(self.inner, &mut data.allocation);
-                if let Some(view) = self.view {
-                    data.device.inner.destroy_image_view(view, None);
-                }
             }
         }
     }
