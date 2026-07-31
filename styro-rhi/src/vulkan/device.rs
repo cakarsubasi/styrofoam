@@ -20,7 +20,7 @@ use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 use vk_mem::Alloc;
 
-use crate::command::LayoutTransition;
+use super::command::LayoutTransition;
 
 use super::command::PipelineType;
 use super::instance::DescriptorHeapProps;
@@ -29,7 +29,7 @@ use super::instance::DeviceResult;
 use super::instance::Instance;
 use super::swapchain::Swapchain;
 
-use super::*;
+use crate::*;
 
 impl Cull {
     fn to_vk(&self) -> (vk::CullModeFlags, vk::FrontFace) {
@@ -275,7 +275,7 @@ impl Device {
 }
 
 impl DeviceRHI for Device {
-    type Pipeline = super::Pipeline;
+    type Pipeline = Pipeline;
     type Semaphore = Semaphore;
     type Queue = Queue;
     type GpuPtr = GpuPtr;
@@ -674,7 +674,7 @@ impl Drop for Queue {
 }
 
 impl QueueRHI for Queue {
-    type CommandBuffer = super::CommandBuffer;
+    type CommandBuffer = CommandBuffer;
 
     fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer {
         let command_buffer = self.get_command_buffer(command_pool);

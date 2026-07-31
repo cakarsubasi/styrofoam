@@ -1,17 +1,8 @@
-/// command pools, command buffers, pipeline creation, shaders
-mod command;
-/// Debug messenger and object naming
-mod debug;
-/// The device handle and constructors for handles obtained from the device
-mod device;
-/// The instance handle and constructors for handles obtained from the instance
-mod instance;
-/// Swapchain, surface, and presentation related functionality
-mod swapchain;
+mod vulkan;
 
-pub use command::{CommandBuffer, Pipeline};
-pub use device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
-pub use swapchain::Swapchain;
+pub use vulkan::command::{CommandBuffer, Pipeline};
+pub use vulkan::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
+pub use vulkan::swapchain::Swapchain;
 
 /// Re-export ash just in case
 pub use ash;

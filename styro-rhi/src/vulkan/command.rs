@@ -6,8 +6,9 @@ use std::sync::RwLock;
 use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
 use super::device::GpuPtr;
+use super::device::ImageData;
 use super::device::Semaphore;
-use super::*;
+use crate::*;
 
 pub(crate) enum PipelineType {
     Graphics,
@@ -188,7 +189,7 @@ impl CommandBuffer {
 
 impl CommandRHI for CommandBuffer {
     type GpuPtr = GpuPtr;
-    type Pipeline = super::Pipeline;
+    type Pipeline = Pipeline;
     type Semaphore = Semaphore;
 
     fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
@@ -611,10 +612,10 @@ impl SwapchainCommandRHI for CommandBuffer {
         let image = heap.ptr_to_image(swapchain_image);
 
         match &image.data {
-            device::ImageData::Allocated(_) => {
+            ImageData::Allocated(_) => {
                 panic!("Cannot present onto an image not acquired from the swapchain")
             }
-            device::ImageData::Swapchain(data) => {
+            ImageData::Swapchain(data) => {
                 self.signal.push(SemaphoreInfo {
                     semaphore: data.submit_signal_present_wait.get(),
                     value: 0,

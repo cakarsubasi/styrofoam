@@ -7,15 +7,15 @@ use ash::VkResult;
 use ash::khr;
 use ash::vk;
 
+use super::device::DescriptorHeap;
+use super::device::Image;
+use super::device::ImageData;
 use crate::Error;
 use crate::GpuPtr;
 use crate::ImageDesc;
 use crate::SwapchainInfo;
 use crate::SwapchainRHI;
 use crate::WindowSystemData;
-use crate::device::DescriptorHeap;
-use crate::device::Image;
-use crate::device::ImageData;
 
 use super::device::DeviceHandles;
 
@@ -372,7 +372,7 @@ impl Swapchain {
                             usage: crate::ImageUsage::Attachment,
                         },
                         current_layout: Cell::new(vk::ImageLayout::UNDEFINED),
-                        data: ImageData::Swapchain(crate::device::SwapchainImageData {
+                        data: ImageData::Swapchain(super::device::SwapchainImageData {
                             idx: idx as u32,
                             submit_wait: Cell::new(vk::Semaphore::null()),
                             submit_signal_present_wait: Cell::new(vk::Semaphore::null()),
