@@ -12,7 +12,7 @@ static float2 positions[4] = float2[](
 [shader("vertex")]
 VertexOutput vertMain(
     uint vid: SV_VertexID,
-    uniform Sampler2D tex,
+    uniform uint2 tex_id,
 ) {
     let position = float4(positions[vid], 0.0, 1.0);
     VertexOutput output;
@@ -23,7 +23,7 @@ VertexOutput vertMain(
 
 [shader("fragment")]
 float4 fragMain(VertexOutput vert,
-    uniform Sampler2D tex,
+    uniform uint2 tex_id,
 ) : SV_TARGET {
-    return tex.Sample(vert.texture_uv);
+    return Sampler2D.Handle(tex_id).Sample(vert.texture_uv);
 }
