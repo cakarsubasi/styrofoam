@@ -162,6 +162,13 @@ impl CommandBuffer {
         }
     }
 
+    pub(super) fn flush_layout_transitions(&mut self) {
+        unsafe {
+            self.multiple_layout_transition(&self.layout_transition_queue);
+            self.layout_transition_queue.clear();
+        }
+    }
+
     unsafe fn set_fixed_dynamic_states(&mut self, extent: vk::Extent2D) {
         unsafe {
             let viewports = [vk::Viewport {
@@ -248,7 +255,7 @@ impl CommandRHI for CommandBuffer {
                 self.inner,
                 src_buffer.inner,
                 dst_image.inner,
-                vk::ImageLayout::GENERAL,
+                dst_image.current_layout.get(),
                 &regions,
             );
         }
@@ -365,6 +372,7 @@ impl CommandRHI for CommandBuffer {
 
         let (src_access_mask, dst_access_mask) = match (before, after) {
             (Stage::HOST, _) => (vkaf::HOST_WRITE, vkaf::empty()),
+            (Stage::TRANSFER, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
             (_, _) => (vkaf::empty(), vk::AccessFlags2::SHADER_SAMPLED_READ),
         };
 
@@ -376,6 +384,7 @@ impl CommandRHI for CommandBuffer {
             dst_stage_mask: after.into(),
             dst_access_mask: dst_access_mask,
         });
+        self.flush_layout_transitions();
     }
 
     fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64) {
