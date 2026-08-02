@@ -260,7 +260,11 @@ impl Swapchain {
             .image_extent(surface_caps.current_extent)
             .image_format(info.format)
             .image_color_space(info.color_space)
-            .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
+            .image_usage(
+                vk::ImageUsageFlags::TRANSFER_DST
+                    | vk::ImageUsageFlags::TRANSFER_SRC
+                    | vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            )
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
             .pre_transform(surface_caps.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE) // PRE_MULTIPLIED is funky
