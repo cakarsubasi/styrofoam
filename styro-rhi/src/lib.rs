@@ -271,7 +271,7 @@ pub trait CommandRHI {
     fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
 
     fn copy_to_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
-    //fn copy_from_texture();
+    fn copy_from_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
     fn copy_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageCopyInfo);
     fn blit_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageBlitInfo);
 

@@ -277,6 +277,43 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
+    fn copy_from_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
+        let heap = self.heap.read().unwrap();
+        let src_image = heap.ptr_to_image(src);
+        let dst_buffer = heap.ptr_to_buffer(dst);
+
+        let buffer_offset = src.offset as u64;
+        let image_extent = vk::Extent3D {
+            width: src_image.desc.dimensions[0],
+            height: src_image.desc.dimensions[1],
+            depth: src_image.desc.dimensions[2],
+        };
+
+        let regions = [vk::BufferImageCopy::default()
+            .buffer_offset(buffer_offset)
+            .buffer_image_height(0)
+            .buffer_row_length(0)
+            .image_offset(vk::Offset3D::default())
+            .image_extent(image_extent)
+            .image_subresource(
+                vk::ImageSubresourceLayers::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .mip_level(0) // TODO: maybe consider multiple mip levels?
+                    .base_array_layer(0)
+                    .layer_count(src_image.desc.layer_count),
+            )];
+
+        unsafe {
+            self.device.inner.cmd_copy_image_to_buffer(
+                self.inner,
+                src_image.inner,
+                src_image.current_layout.get(),
+                dst_buffer.inner,
+                &regions,
+            );
+        }
+    }
+
     fn copy_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageCopyInfo) {
         let heap = self.heap.read().unwrap();
         let src_image = heap.ptr_to_image(src);
