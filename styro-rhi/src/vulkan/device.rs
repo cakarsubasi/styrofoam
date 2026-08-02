@@ -1157,6 +1157,13 @@ fn image_type_to_image_view_type(ty: vk::ImageType) -> vk::ImageViewType {
 
 impl ImageUsage {
     fn to_vk(&self) -> vk::ImageUsageFlags {
+        return vk::ImageUsageFlags::INPUT_ATTACHMENT
+            | vk::ImageUsageFlags::COLOR_ATTACHMENT
+            | vk::ImageUsageFlags::STORAGE
+            | vk::ImageUsageFlags::SAMPLED
+            | vk::ImageUsageFlags::TRANSFER_SRC
+            | vk::ImageUsageFlags::TRANSFER_DST;
+
         match self {
             ImageUsage::Sampled => {
                 vk::ImageUsageFlags::SAMPLED
@@ -1239,7 +1246,7 @@ impl Image {
             let memory_req = device.inner.get_image_memory_requirements(image);
 
             let view = match description.usage {
-                ImageUsage::Attachment => Some(
+                _ => Some(
                     device
                         .inner
                         .create_image_view(
