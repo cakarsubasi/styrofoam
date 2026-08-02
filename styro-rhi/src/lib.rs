@@ -9,39 +9,68 @@ pub use ash;
 
 pub use ash::util::read_spv;
 
+use ash::vk;
+
 #[derive(Debug)]
 pub enum Error {
     DeviceLost,
     SurfaceLost,
     SwapchainOutOfDate,
-    OtherError(ash::vk::Result),
+    OtherError(i32),
 }
 
 impl From<ash::vk::Result> for Error {
     fn from(value: ash::vk::Result) -> Self {
         match value {
-            ash::vk::Result::ERROR_DEVICE_LOST => Error::DeviceLost,
-            ash::vk::Result::ERROR_SURFACE_LOST_KHR => Error::SurfaceLost,
-            ash::vk::Result::ERROR_OUT_OF_DATE_KHR => Error::SwapchainOutOfDate,
-            err => Error::OtherError(err),
+            vk::Result::ERROR_DEVICE_LOST => Error::DeviceLost,
+            vk::Result::ERROR_SURFACE_LOST_KHR => Error::SurfaceLost,
+            vk::Result::ERROR_OUT_OF_DATE_KHR => Error::SwapchainOutOfDate,
+            err => Error::OtherError(err.as_raw()),
+        }
+    }
+}
+
+pub enum CompareOp {
+    Never = 0,
+    Less = 1,
+    Equal = 2,
+    LessOrEqual = 3,
+    Greater = 4,
+    NotEqual = 5,
+    GreaterOrEqual = 6,
+    Always = 7,
+}
+
+impl From<CompareOp> for vk::CompareOp {
+    fn from(value: CompareOp) -> Self {
+        match value {
+            CompareOp::Never => vk::CompareOp::NEVER,
+            CompareOp::Less => vk::CompareOp::LESS,
+            CompareOp::Equal => vk::CompareOp::EQUAL,
+            CompareOp::LessOrEqual => vk::CompareOp::LESS_OR_EQUAL,
+            CompareOp::Greater => vk::CompareOp::GREATER,
+            CompareOp::NotEqual => vk::CompareOp::NOT_EQUAL,
+            CompareOp::GreaterOrEqual => vk::CompareOp::GREATER_OR_EQUAL,
+            CompareOp::Always => vk::CompareOp::ALWAYS,
         }
     }
 }
 
 pub struct DepthStencilState {
     //mode: DepthFlags,
-    pub depth_test: ash::vk::CompareOp,
+    pub depth_test: CompareOp,
     pub depth_bias: f32,
     pub depth_bias_slope_factor: f32,
     pub depth_bias_clamp: f32,
 }
+
 pub struct BlendState {
-    color_op: ash::vk::BlendOp,
-    src_color_factor: ash::vk::BlendFactor,
-    dst_color_factor: ash::vk::BlendFactor,
-    alpha_op: ash::vk::BlendOp,
-    src_alpha_factor: ash::vk::BlendFactor,
-    dst_alpha_factor: ash::vk::BlendFactor,
+    pub color_op: ash::vk::BlendOp,
+    pub src_color_factor: ash::vk::BlendFactor,
+    pub dst_color_factor: ash::vk::BlendFactor,
+    pub alpha_op: ash::vk::BlendOp,
+    pub src_alpha_factor: ash::vk::BlendFactor,
+    pub dst_alpha_factor: ash::vk::BlendFactor,
 }
 
 pub type LoadOp = ash::vk::AttachmentLoadOp;
