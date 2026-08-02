@@ -194,6 +194,22 @@ impl CommandBuffer {
     }
 }
 
+fn to_extent3d(vec: UVec3) -> vk::Extent3D {
+    vk::Extent3D {
+        width: vec[0],
+        height: vec[1],
+        depth: vec[2],
+    }
+}
+
+fn to_offset3d(vec: UVec3) -> vk::Offset3D {
+    vk::Offset3D {
+        x: vec[0] as i32,
+        y: vec[1] as i32,
+        z: vec[2] as i32,
+    }
+}
+
 impl CommandRHI for CommandBuffer {
     type GpuPtr = GpuPtr;
     type Pipeline = Pipeline;
@@ -254,6 +270,42 @@ impl CommandRHI for CommandBuffer {
             self.device.inner.cmd_copy_buffer_to_image(
                 self.inner,
                 src_buffer.inner,
+                dst_image.inner,
+                dst_image.current_layout.get(),
+                &regions,
+            );
+        }
+    }
+
+    fn copy_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageCopyInfo) {
+        let heap = self.heap.read().unwrap();
+        let src_image = heap.ptr_to_image(src);
+        let dst_image = heap.ptr_to_image(dst);
+
+        let src_subresource = vk::ImageSubresourceLayers::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(src_image.desc.layer_count);
+
+        let dst_subresource = vk::ImageSubresourceLayers::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(src_image.desc.layer_count);
+
+        unsafe {
+            let regions = [vk::ImageCopy::default()
+                .src_subresource(src_subresource)
+                .src_offset(to_offset3d(info.src_offset))
+                .dst_subresource(dst_subresource)
+                .dst_offset(to_offset3d(info.dst_offset))
+                .extent(to_extent3d(info.extent))];
+
+            self.device.inner.cmd_copy_image(
+                self.inner,
+                src_image.inner,
+                src_image.current_layout.get(),
                 dst_image.inner,
                 dst_image.current_layout.get(),
                 &regions,
