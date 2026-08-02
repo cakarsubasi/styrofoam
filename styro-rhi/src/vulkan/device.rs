@@ -975,21 +975,15 @@ pub struct GpuPtr {
 }
 
 impl BufferUsage {
-    pub(crate) fn descriptor_type(&self) -> vk::DescriptorType {
-        match self {
-            Self::Uniform => vk::DescriptorType::UNIFORM_BUFFER,
-            Self::Storage => vk::DescriptorType::STORAGE_BUFFER,
-            //BufferType::Indirect => vk::DescriptorType,
-            _ => panic!(),
-        }
-    }
-
     fn usage(&self) -> vk::BufferUsageFlags {
         match self {
-            BufferUsage::Uniform => vk::BufferUsageFlags::UNIFORM_BUFFER,
-            BufferUsage::Storage => vk::BufferUsageFlags::STORAGE_BUFFER,
-            BufferUsage::Index => vk::BufferUsageFlags::INDEX_BUFFER,
             BufferUsage::DescriptorHeap => vk::BufferUsageFlags::DESCRIPTOR_HEAP_EXT,
+            _ => {
+                vk::BufferUsageFlags::INDEX_BUFFER
+                    | vk::BufferUsageFlags::INDIRECT_BUFFER
+                    | vk::BufferUsageFlags::STORAGE_BUFFER
+                    | vk::BufferUsageFlags::UNIFORM_BUFFER
+            }
         }
     }
 }

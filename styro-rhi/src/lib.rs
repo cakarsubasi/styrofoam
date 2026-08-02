@@ -110,9 +110,7 @@ pub enum Memory {
 }
 #[derive(Clone, Copy)]
 pub enum BufferUsage {
-    Uniform,
-    Storage,
-    Index,
+    General,
     DescriptorHeap,
 }
 #[derive(Clone, Copy)]
