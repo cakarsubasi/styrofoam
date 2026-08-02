@@ -350,7 +350,7 @@ impl TextureRenderData {
             self.texture,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         );
-        command_buffer.copy_to_texture(self.texture, self.staging_buffer);
+        command_buffer.copy_to_image(self.staging_buffer, self.texture);
     }
 
     fn draw(&self, device: &Device, command_buffer: &mut CommandBuffer, framebuffer: GpuPtr) {
