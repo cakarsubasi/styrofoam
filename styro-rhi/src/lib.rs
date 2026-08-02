@@ -268,12 +268,22 @@ pub trait CommandRHI {
     type Pipeline;
     type Semaphore;
 
-    fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
+    fn copy_memory(&mut self, src_buffer: Self::GpuPtr, dst_buffer: Self::GpuPtr);
 
-    fn copy_to_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
-    fn copy_from_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
-    fn copy_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageCopyInfo);
-    fn blit_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageBlitInfo);
+    fn copy_to_image(&mut self, src_buffer: Self::GpuPtr, dst_image: Self::GpuPtr);
+    fn copy_from_image(&mut self, src_image: Self::GpuPtr, dst_buffer: Self::GpuPtr);
+    fn copy_image(
+        &mut self,
+        src_image: Self::GpuPtr,
+        dst_image: Self::GpuPtr,
+        info: &ImageCopyInfo,
+    );
+    fn blit_image(
+        &mut self,
+        src_image: Self::GpuPtr,
+        dst_image: Self::GpuPtr,
+        info: &ImageBlitInfo,
+    );
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 

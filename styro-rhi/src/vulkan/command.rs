@@ -215,7 +215,7 @@ impl CommandRHI for CommandBuffer {
     type Pipeline = Pipeline;
     type Semaphore = Semaphore;
 
-    fn mem_cpy(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
+    fn copy_memory(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
         let heap = self.heap.read().unwrap();
         let src_buffer = heap.ptr_to_buffer(src);
         let dst_buffer = heap.ptr_to_buffer(dst);
@@ -240,12 +240,12 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_to_texture(&mut self, _dst: Self::GpuPtr, _src: Self::GpuPtr) {
+    fn copy_to_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
         let heap = self.heap.read().unwrap();
-        let src_buffer = heap.ptr_to_buffer(_src);
-        let dst_image = heap.ptr_to_image(_dst);
+        let src_buffer = heap.ptr_to_buffer(src);
+        let dst_image = heap.ptr_to_image(dst);
 
-        let buffer_offset = _src.offset as u64;
+        let buffer_offset = src.offset as u64;
         let image_extent = vk::Extent3D {
             width: dst_image.desc.dimensions[0],
             height: dst_image.desc.dimensions[1],
@@ -277,7 +277,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_from_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr) {
+    fn copy_from_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
         let heap = self.heap.read().unwrap();
         let src_image = heap.ptr_to_image(src);
         let dst_buffer = heap.ptr_to_buffer(dst);
@@ -314,7 +314,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageCopyInfo) {
+    fn copy_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr, info: &ImageCopyInfo) {
         let heap = self.heap.read().unwrap();
         let src_image = heap.ptr_to_image(src);
         let dst_image = heap.ptr_to_image(dst);
@@ -363,7 +363,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn blit_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageBlitInfo) {
+    fn blit_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr, info: &ImageBlitInfo) {
         let heap = self.heap.read().unwrap();
         let src_image = heap.ptr_to_image(src);
         let dst_image = heap.ptr_to_image(dst);
