@@ -295,12 +295,25 @@ impl CommandRHI for CommandBuffer {
             .layer_count(src_image.desc.layer_count);
 
         unsafe {
+            let src_offset = to_offset3d(info.src_offset);
+            let dst_offset = to_offset3d(info.dst_offset);
+            let extent = to_extent3d(info.extent);
+
+            assert!(
+                src_image.extent_is_within_bounds(src_offset, extent),
+                "Provided offset and extent are out of bounds for the source image."
+            );
+            assert!(
+                dst_image.extent_is_within_bounds(dst_offset, extent),
+                "Provided offset and extent are out of bounds for the destination image."
+            );
+
             let regions = [vk::ImageCopy::default()
                 .src_subresource(src_subresource)
-                .src_offset(to_offset3d(info.src_offset))
+                .src_offset(src_offset)
                 .dst_subresource(dst_subresource)
-                .dst_offset(to_offset3d(info.dst_offset))
-                .extent(to_extent3d(info.extent))];
+                .dst_offset(dst_offset)
+                .extent(extent)];
 
             self.device.inner.cmd_copy_image(
                 self.inner,
@@ -344,6 +357,9 @@ impl CommandRHI for CommandBuffer {
                 info.dst_offset[1] + info.dst_extent[1],
                 info.dst_offset[2] + info.dst_extent[2],
             ]);
+
+            assert!(src_image.offset_is_within_bounds(src_offset2));
+            assert!(dst_image.offset_is_within_bounds(dst_offset2));
 
             let regions = [vk::ImageBlit::default()
                 .src_subresource(src_subresource)

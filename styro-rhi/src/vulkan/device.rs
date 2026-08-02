@@ -1295,6 +1295,30 @@ impl Image {
         }
     }
 
+    pub fn extent3d(&self) -> vk::Extent3D {
+        vk::Extent3D {
+            width: self.desc.dimensions[0],
+            height: self.desc.dimensions[1],
+            depth: self.desc.dimensions[2],
+        }
+    }
+
+    pub fn extent_is_within_bounds(&self, offset: vk::Offset3D, extent: vk::Extent3D) -> bool {
+        let extent_of_this = self.extent3d();
+
+        (offset.x as u32 + extent.width) <= extent_of_this.width
+            && (offset.y as u32 + extent.height) <= extent_of_this.height
+            && (offset.z as u32 + extent.depth) <= extent_of_this.depth
+    }
+
+    pub fn offset_is_within_bounds(&self, offset: vk::Offset3D) -> bool {
+        let extent_of_this = self.extent3d();
+
+        offset.x <= extent_of_this.width as i32
+            && offset.y <= extent_of_this.height as i32
+            && offset.z <= extent_of_this.depth as i32
+    }
+
     pub fn free_resources(mut self, device: &DeviceHandles) {
         unsafe {
             if let Some(view) = self.view {
