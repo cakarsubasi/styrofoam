@@ -255,6 +255,14 @@ pub struct ImageCopyInfo {
     pub extent: UVec3,
 }
 
+#[derive(Clone, Copy, Default)]
+pub struct ImageBlitInfo {
+    pub src_offset: UVec3,
+    pub dst_offset: UVec3,
+    pub src_extent: UVec3,
+    pub dst_extent: UVec3,
+}
+
 pub trait CommandRHI {
     type GpuPtr;
     type Pipeline;
@@ -265,6 +273,7 @@ pub trait CommandRHI {
     fn copy_to_texture(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr);
     //fn copy_from_texture();
     fn copy_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageCopyInfo);
+    fn blit_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageBlitInfo);
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 

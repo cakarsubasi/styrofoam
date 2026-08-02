@@ -313,6 +313,56 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
+    fn blit_image(&mut self, dst: Self::GpuPtr, src: Self::GpuPtr, info: &ImageBlitInfo) {
+        let heap = self.heap.read().unwrap();
+        let src_image = heap.ptr_to_image(src);
+        let dst_image = heap.ptr_to_image(dst);
+
+        let src_subresource = vk::ImageSubresourceLayers::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(src_image.desc.layer_count);
+
+        let dst_subresource = vk::ImageSubresourceLayers::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0)
+            .base_array_layer(0)
+            .layer_count(src_image.desc.layer_count);
+
+        unsafe {
+            let src_offset1 = to_offset3d(info.src_offset);
+            let src_offset2 = to_offset3d([
+                info.src_offset[0] + info.src_extent[0],
+                info.src_offset[1] + info.src_extent[1],
+                info.src_offset[2] + info.src_extent[2],
+            ]);
+
+            let dst_offset1 = to_offset3d(info.dst_offset);
+            let dst_offset2 = to_offset3d([
+                info.dst_offset[0] + info.dst_extent[0],
+                info.dst_offset[1] + info.dst_extent[1],
+                info.dst_offset[2] + info.dst_extent[2],
+            ]);
+
+            let regions = [vk::ImageBlit::default()
+                .src_subresource(src_subresource)
+                .src_offsets([src_offset1, src_offset2])
+                .dst_subresource(dst_subresource)
+                .dst_offsets([dst_offset1, dst_offset2])];
+
+            self.device.inner.cmd_blit_image(
+                self.inner,
+                src_image.inner,
+                src_image.current_layout.get(),
+                dst_image.inner,
+                dst_image.current_layout.get(),
+                &regions,
+                vk::Filter::LINEAR,
+            );
+        }
+    }
+
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr) {
         let resource_heap_null = resource_heap.is_null();
         let sampler_heap_null = sampler_heap.is_null();
@@ -425,7 +475,9 @@ impl CommandRHI for CommandBuffer {
         let (src_access_mask, dst_access_mask) = match (before, after) {
             (Stage::HOST, _) => (vkaf::HOST_WRITE, vkaf::empty()),
             (Stage::TRANSFER, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
-            (_, _) => (vkaf::empty(), vk::AccessFlags2::SHADER_SAMPLED_READ),
+            (Stage::COLOR_ATTACHMENT_OUTPUT, _) => (vkaf::COLOR_ATTACHMENT_WRITE, vkaf::empty()),
+            (Stage::BLIT, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
+            (_, _) => (vkaf::empty(), vkaf::empty()),
         };
 
         self.layout_transition_queue.push(LayoutTransition {
