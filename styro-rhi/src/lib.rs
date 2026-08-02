@@ -246,13 +246,6 @@ pub trait QueueRHI {
 
 pub type Stage = ash::vk::PipelineStageFlags2;
 
-pub enum ShaderStage {
-    Vertex,
-    Fragment,
-    Compute,
-    Mesh,
-}
-
 pub type PushData<'a> = &'a [u8];
 
 pub trait CommandRHI {
