@@ -580,12 +580,12 @@ impl CommandRHI for CommandBuffer {
             extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
 
             let color_blend_equation = vk::ColorBlendEquationEXT::default()
-                .src_color_blend_factor(state.src_color_factor)
-                .dst_color_blend_factor(state.dst_color_factor)
-                .color_blend_op(state.color_op)
-                .src_alpha_blend_factor(state.src_alpha_factor)
-                .dst_alpha_blend_factor(state.dst_alpha_factor)
-                .alpha_blend_op(state.alpha_op);
+                .src_color_blend_factor(state.src_color_factor.into())
+                .dst_color_blend_factor(state.dst_color_factor.into())
+                .color_blend_op(state.color_op.into())
+                .src_alpha_blend_factor(state.src_alpha_factor.into())
+                .dst_alpha_blend_factor(state.dst_alpha_factor.into())
+                .alpha_blend_op(state.alpha_op.into());
 
             extended_dynamic_state3.cmd_set_color_blend_equation(
                 self.inner,

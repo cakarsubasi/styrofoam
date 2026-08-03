@@ -64,13 +64,84 @@ pub struct DepthStencilState {
     pub depth_bias_clamp: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum BlendOp {
+    Add = 0,
+    Subtract = 1,
+    ReverseSubtract = 2,
+    Min = 3,
+    Max = 4,
+}
+
+impl From<BlendOp> for vk::BlendOp {
+    fn from(value: BlendOp) -> Self {
+        match value {
+            BlendOp::Add => vk::BlendOp::ADD,
+            BlendOp::Subtract => vk::BlendOp::SUBTRACT,
+            BlendOp::ReverseSubtract => vk::BlendOp::REVERSE_SUBTRACT,
+            BlendOp::Min => vk::BlendOp::MIN,
+            BlendOp::Max => vk::BlendOp::MAX,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum BlendFactor {
+    Zero = 0,
+    One = 1,
+    SrcColor = 2,
+    OneMinusSrcColor = 3,
+    DstColor = 4,
+    OneMinusDstColor = 5,
+    SrcAlpha = 6,
+    OneMinusSrcAlpha = 7,
+    DstAlpha = 8,
+    OneMinusDstAlpha = 9,
+    ConstantColor = 10,
+    OneMinusConstantColor = 11,
+    ConstantAlpha = 12,
+    OneMinusConstantAlpha = 13,
+    SrcAlphaSaturate = 14,
+    Src1Color = 15,
+    OneMinusSrc1Color = 16,
+    Src1Alpha = 17,
+    OneMinusSrc1Alpha = 18,
+}
+
+impl From<BlendFactor> for vk::BlendFactor {
+    fn from(value: BlendFactor) -> Self {
+        match value {
+            BlendFactor::Zero => vk::BlendFactor::ZERO,
+            BlendFactor::One => vk::BlendFactor::ONE,
+            BlendFactor::SrcColor => vk::BlendFactor::SRC_COLOR,
+            BlendFactor::OneMinusSrcColor => vk::BlendFactor::ONE_MINUS_SRC_COLOR,
+            BlendFactor::DstColor => vk::BlendFactor::DST_COLOR,
+            BlendFactor::OneMinusDstColor => vk::BlendFactor::ONE_MINUS_DST_COLOR,
+            BlendFactor::SrcAlpha => vk::BlendFactor::SRC_ALPHA,
+            BlendFactor::OneMinusSrcAlpha => vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            BlendFactor::DstAlpha => vk::BlendFactor::DST_ALPHA,
+            BlendFactor::OneMinusDstAlpha => vk::BlendFactor::ONE_MINUS_DST_ALPHA,
+            BlendFactor::ConstantColor => vk::BlendFactor::CONSTANT_COLOR,
+            BlendFactor::OneMinusConstantColor => vk::BlendFactor::ONE_MINUS_CONSTANT_COLOR,
+            BlendFactor::ConstantAlpha => vk::BlendFactor::CONSTANT_ALPHA,
+            BlendFactor::OneMinusConstantAlpha => vk::BlendFactor::ONE_MINUS_CONSTANT_ALPHA,
+            BlendFactor::SrcAlphaSaturate => vk::BlendFactor::SRC_ALPHA_SATURATE,
+            BlendFactor::Src1Color => vk::BlendFactor::SRC1_COLOR,
+            BlendFactor::OneMinusSrc1Color => vk::BlendFactor::ONE_MINUS_SRC1_COLOR,
+            BlendFactor::Src1Alpha => vk::BlendFactor::SRC1_ALPHA,
+            BlendFactor::OneMinusSrc1Alpha => vk::BlendFactor::ONE_MINUS_SRC1_ALPHA,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct BlendState {
-    pub color_op: ash::vk::BlendOp,
-    pub src_color_factor: ash::vk::BlendFactor,
-    pub dst_color_factor: ash::vk::BlendFactor,
-    pub alpha_op: ash::vk::BlendOp,
-    pub src_alpha_factor: ash::vk::BlendFactor,
-    pub dst_alpha_factor: ash::vk::BlendFactor,
+    pub color_op: BlendOp,
+    pub src_color_factor: BlendFactor,
+    pub dst_color_factor: BlendFactor,
+    pub alpha_op: BlendOp,
+    pub src_alpha_factor: BlendFactor,
+    pub dst_alpha_factor: BlendFactor,
 }
 
 pub type LoadOp = ash::vk::AttachmentLoadOp;
