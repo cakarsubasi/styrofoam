@@ -548,8 +548,81 @@ pub trait QueueRHI {
     fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error>;
 }
 
-pub type Stage = vk::PipelineStageFlags2;
-pub type ImageLayout = vk::ImageLayout;
+#[derive(Debug, Clone, Copy)]
+pub enum Stage {
+    None,
+    TopOfPipe,
+    DrawIndirect,
+    VertexShader,
+    FragmentShader,
+    EarlyFragmentTests,
+    LateFragmentTests,
+    ColorAttachmentOutput,
+    ComputeShader,
+    Transfer,
+    BottomOfPipe,
+    AllGraphics,
+    AllCommands,
+    Host,
+    Copy,
+    Resolve,
+    Blit,
+    Clear,
+    TaskShader,
+    MeshShader,
+}
+impl From<Stage> for vk::PipelineStageFlags2 {
+    fn from(value: Stage) -> Self {
+        match value {
+            Stage::None => vk::PipelineStageFlags2::NONE,
+            Stage::TopOfPipe => vk::PipelineStageFlags2::TOP_OF_PIPE,
+            Stage::DrawIndirect => vk::PipelineStageFlags2::DRAW_INDIRECT,
+            Stage::VertexShader => vk::PipelineStageFlags2::VERTEX_SHADER,
+            Stage::FragmentShader => vk::PipelineStageFlags2::FRAGMENT_SHADER,
+            Stage::EarlyFragmentTests => vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS,
+            Stage::LateFragmentTests => vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+            Stage::ColorAttachmentOutput => vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            Stage::ComputeShader => vk::PipelineStageFlags2::COMPUTE_SHADER,
+            Stage::Transfer => vk::PipelineStageFlags2::TRANSFER,
+            Stage::BottomOfPipe => vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+            Stage::AllGraphics => vk::PipelineStageFlags2::ALL_GRAPHICS,
+            Stage::AllCommands => vk::PipelineStageFlags2::ALL_COMMANDS,
+            Stage::Host => vk::PipelineStageFlags2::HOST,
+            Stage::Copy => vk::PipelineStageFlags2::COPY,
+            Stage::Resolve => vk::PipelineStageFlags2::RESOLVE,
+            Stage::Blit => vk::PipelineStageFlags2::BLIT,
+            Stage::Clear => vk::PipelineStageFlags2::CLEAR,
+            Stage::TaskShader => vk::PipelineStageFlags2::TASK_SHADER_EXT,
+            Stage::MeshShader => vk::PipelineStageFlags2::MESH_SHADER_EXT,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ImageLayout {
+    Undefined,
+    General,
+    Attachment,
+    ShaderReadOnlyOptimal,
+    TransferSrcOptimal,
+    TransferDstOptimal,
+    RenderingLocalRead,
+    PresentSrc,
+}
+impl From<ImageLayout> for vk::ImageLayout {
+    fn from(value: ImageLayout) -> Self {
+        match value {
+            ImageLayout::Undefined => vk::ImageLayout::UNDEFINED,
+            ImageLayout::General => vk::ImageLayout::GENERAL,
+            ImageLayout::Attachment => vk::ImageLayout::ATTACHMENT_OPTIMAL,
+            ImageLayout::ShaderReadOnlyOptimal => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            ImageLayout::TransferSrcOptimal => vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+            ImageLayout::TransferDstOptimal => vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            ImageLayout::RenderingLocalRead => vk::ImageLayout::RENDERING_LOCAL_READ,
+            ImageLayout::PresentSrc => vk::ImageLayout::PRESENT_SRC_KHR,
+        }
+    }
+}
 
 pub type PushData<'a> = &'a [u8];
 

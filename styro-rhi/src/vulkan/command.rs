@@ -536,9 +536,9 @@ impl CommandRHI for CommandBuffer {
             // A read after write indicates a true dependency which is the strictest
             // synchronization option we have. Might be a good idea to make this more relaxed
             let barriers = [vk::MemoryBarrier2::default()
-                .src_stage_mask(before)
+                .src_stage_mask(before.into())
                 .src_access_mask(vk::AccessFlags2::MEMORY_WRITE)
-                .dst_stage_mask(after)
+                .dst_stage_mask(after.into())
                 .dst_access_mask(vk::AccessFlags2::MEMORY_READ)];
 
             let dependency_info = vk::DependencyInfo::default().memory_barriers(&barriers);
@@ -553,21 +553,21 @@ impl CommandRHI for CommandBuffer {
         before: Stage,
         after: Stage,
         image: Self::GpuPtr,
-        layout: ash::vk::ImageLayout,
+        layout: ImageLayout,
     ) {
         use vk::AccessFlags2 as vkaf;
 
         let (src_access_mask, dst_access_mask) = match (before, after) {
-            (Stage::HOST, _) => (vkaf::HOST_WRITE, vkaf::empty()),
-            (Stage::TRANSFER, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
-            (Stage::COLOR_ATTACHMENT_OUTPUT, _) => (vkaf::COLOR_ATTACHMENT_WRITE, vkaf::empty()),
-            (Stage::BLIT, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
+            (Stage::Host, _) => (vkaf::HOST_WRITE, vkaf::empty()),
+            (Stage::Transfer, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
+            (Stage::ColorAttachmentOutput, _) => (vkaf::COLOR_ATTACHMENT_WRITE, vkaf::empty()),
+            (Stage::Blit, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
             (_, _) => (vkaf::empty(), vkaf::empty()),
         };
 
         self.layout_transition_queue.push(LayoutTransition {
             image,
-            new_layout: layout,
+            new_layout: layout.into(),
             src_stage_mask: before.into(),
             src_access_mask: src_access_mask,
             dst_stage_mask: after.into(),
@@ -867,12 +867,12 @@ impl SwapchainCommandRHI for CommandBuffer {
                 self.signal.push(SemaphoreInfo {
                     semaphore: data.submit_signal_present_wait.get(),
                     value: 0,
-                    stage: vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                    stage: Stage::BottomOfPipe,
                 });
                 self.wait.push(SemaphoreInfo {
                     semaphore: data.submit_wait.get(),
                     value: 0,
-                    stage: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                    stage: Stage::ColorAttachmentOutput,
                 });
             }
         }

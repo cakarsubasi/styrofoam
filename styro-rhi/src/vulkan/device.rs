@@ -621,7 +621,7 @@ impl Queue {
                 .map(|info| {
                     vk::SemaphoreSubmitInfo::default()
                         .semaphore(info.semaphore)
-                        .stage_mask(info.stage)
+                        .stage_mask(info.stage.into())
                         .value(info.value)
                 })
                 .collect();
@@ -632,7 +632,7 @@ impl Queue {
                 .map(|info| {
                     vk::SemaphoreSubmitInfo::default()
                         .semaphore(info.semaphore)
-                        .stage_mask(info.stage)
+                        .stage_mask(info.stage.into())
                         .value(info.value)
                 })
                 .collect();
@@ -985,6 +985,7 @@ impl BufferUsage {
         }
     }
 }
+
 impl Memory {
     fn vma_options(&self) -> vk_mem::AllocationCreateInfo {
         match self {
