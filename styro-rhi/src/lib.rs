@@ -1,8 +1,12 @@
+/// format is so bloated, it gets its own module
+mod format;
 mod vulkan;
 
 pub use vulkan::command::{CommandBuffer, Pipeline};
 pub use vulkan::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
 pub use vulkan::swapchain::Swapchain;
+
+pub use format::Format;
 
 /// Re-export ash just in case
 pub use ash;
@@ -291,9 +295,10 @@ pub struct RasterDescription<'a> {
     pub topology: Topology,
     pub cull: Cull,
     pub alpha_to_coverage: bool,
-    pub depth_format: ash::vk::Format,
-    pub stencil_format: ash::vk::Format,
-    pub color_formats: &'a [ash::vk::Format],
+    pub depth_format: Format,
+    pub stencil_format: Format,
+    pub color_formats: &'a [Format],
+    pub blend_state: Option<BlendState>,
 }
 impl Default for RasterDescription<'_> {
     fn default() -> Self {
@@ -301,8 +306,8 @@ impl Default for RasterDescription<'_> {
             topology: Topology::TriangleList,
             cull: Cull::CCW,
             alpha_to_coverage: false,
-            depth_format: ash::vk::Format::UNDEFINED,
-            stencil_format: ash::vk::Format::UNDEFINED,
+            depth_format: Format::UNDEFINED,
+            stencil_format: Format::UNDEFINED,
             color_formats: &[],
         }
     }
@@ -338,7 +343,7 @@ pub struct ImageDesc {
     pub mip_count: u32,
     pub layer_count: u32,
     pub sample_count: u32,
-    pub format: ash::vk::Format,
+    pub format: Format,
     pub usage: ImageUsage,
 }
 impl Default for ImageDesc {
@@ -349,7 +354,7 @@ impl Default for ImageDesc {
             mip_count: 1,
             layer_count: 1,
             sample_count: 1,
-            format: ash::vk::Format::UNDEFINED,
+            format: Format::UNDEFINED,
             usage: ImageUsage::Sampled,
         }
     }
