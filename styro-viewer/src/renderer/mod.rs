@@ -11,6 +11,8 @@ use styro_rhi::Device;
 use styro_rhi::DeviceRHI;
 use styro_rhi::Error;
 use styro_rhi::GpuPtr;
+use styro_rhi::ImageBlitInfo;
+use styro_rhi::ImageCopyInfo;
 use styro_rhi::ImageDesc;
 use styro_rhi::ImageDescriptor;
 use styro_rhi::Memory;
@@ -50,69 +52,19 @@ struct RenderState {
     frame_index: u64,
     render_data: TextureRenderData,
     frame_semaphore: Semaphore,
+    images: Vec<GpuPtr>,
 }
 
 impl RenderState {}
 
 const FRAMES_IN_FLIGHT: u64 = 2;
 
-//fn test() -> Result<(), Error> {
-//    let frames_in_flight = 2u64;
-//    let mut device = Device::new(/* WindowingSystem */);
-//
-//    let graphics_queue = device.create_queue(QueueType::Graphics, frames_in_flight as u32, 1);
-//
-//    let swapchain = device.create_swapchain(
-//        &graphics_queue,
-//        &window,
-//        &SwapchainInfo {
-//            size: frames_in_flight as u32,
-//            format: Format::R8G8B8A8_SRGB,
-//            color_space: ColorSpace::SRGB_NONLINEAR,
-//        },
-//    );
-//
-//    let frame_semaphore = device.create_semaphore(0);
-//    let mut next_frame = 1u64;
-//
-//    loop {
-//        if next_frame > frames_in_flight {
-//            device.wait_semaphores(&[frame_semaphore], &[next_frame - frames_in_flight]);
-//        }
-//
-//        let swapchain_image = swapchain.acquire_next_image()?;
-//
-//        // option 2: alternative entry API from CommandBufferRHI
-//        let command_buffer = graphics_queue.begin_recording(next_frame as u32 % 2);
-//        command_buffer.begin_presenting(swapchain_image);
-//
-//        /* Image transitions go here */
-//
-//        command_buffer.begin_render_pass(&RenderPassDescription {
-//            color_targets: &[RenderTarget {
-//                image: swapchain_image, /* swapchain image or offscreen buffer */
-//                ..Default::default()
-//            }],
-//            ..Default::default()
-//        });
-//
-//        /* draw commands go here */
-//
-//        command_buffer.end_render_pass();
-//        /* If rendering to an offscreen buffer
-//        command_buffer.copy_image_to_image(offscreen_buffer, swapchain_image);
-//        */
-//        graphics_queue.submit(&[command_buffer])?;
-//        swapchain.present(swapchain_image)?;
-//    }
-//}
-
 impl Renderer {
     pub unsafe fn new(
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Self {
-        let mut device_rhi = Device::new_with_presentation(raw_display_handle, raw_window_handle);
+        let mut device_rhi = Device::new_with_presentation(raw_display_handle);
 
         let graphics_queue =
             device_rhi.create_queue(QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
@@ -129,6 +81,15 @@ impl Renderer {
                 color_space: ColorSpace::SRGB_NONLINEAR,
             },
         );
+        let images: Vec<_> = (0..2)
+            .map(|_| {
+                device_rhi.create_image(&ImageDesc {
+                    dimensions: [800, 600, 1],
+                    format: vk::Format::R8G8B8A8_UNORM,
+                    ..Default::default()
+                })
+            })
+            .collect();
         let frame_semaphore = device_rhi.create_semaphore(0);
         let render_data = TextureRenderData::new(&mut device_rhi);
         //UiDataGpu::new(&mut device_rhi);
@@ -139,6 +100,7 @@ impl Renderer {
                 frame_index: 1,
                 render_data: render_data,
                 frame_semaphore,
+                images,
             },
             graphics_queue,
         }
@@ -156,6 +118,7 @@ impl Renderer {
             );
         }
         let swapchain_image = self.swapchain.acquire_next_image()?;
+        let render_target = self.state.images[(*next_frame % FRAMES_IN_FLIGHT) as usize];
 
         let mut command_buffer = self.graphics_queue.begin_recording(command_pool as u32);
         command_buffer.begin_presenting(swapchain_image);
@@ -163,10 +126,31 @@ impl Renderer {
         if *next_frame == 1 {
             render_data.upload(&mut self.device, &mut command_buffer);
         } else {
-            render_data.draw(&self.device, &mut command_buffer, swapchain_image);
+            render_data.draw(&self.device, &mut command_buffer, render_target);
         }
 
-        render_data.draw(&self.device, &mut command_buffer, swapchain_image);
+        command_buffer.image_barrier(
+            Stage::COLOR_ATTACHMENT_OUTPUT,
+            Stage::BLIT,
+            render_target,
+            vk::ImageLayout::GENERAL,
+        );
+        command_buffer.image_barrier(
+            Stage::BLIT,
+            Stage::BOTTOM_OF_PIPE,
+            swapchain_image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        );
+
+        command_buffer.blit_image(
+            render_target,
+            swapchain_image,
+            &ImageBlitInfo {
+                src_extent: [800, 600, 1],
+                dst_extent: [400, 300, 1],
+                ..Default::default()
+            },
+        );
 
         command_buffer.signal_after(
             vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
@@ -208,7 +192,7 @@ impl TriangleRenderData {
         let buffer_desc = BufferDesc {
             memory: Memory::Default,
             size: 4 * 6,
-            usage: BufferUsage::Index,
+            usage: BufferUsage::General,
         };
         let indices = device.create_buffer(&buffer_desc);
         let indices_mapped = device.buffer_host_ptr(indices) as *mut u32;
@@ -255,7 +239,7 @@ impl TextureRenderData {
             entry: c"fragMain",
         };
         let description = RasterDescription {
-            color_formats: &[vk::Format::R8G8B8A8_SRGB],
+            color_formats: &[vk::Format::R8G8B8A8_UNORM],
             cull: Cull::NONE,
             ..Default::default()
         };
@@ -265,7 +249,7 @@ impl TextureRenderData {
         let buffer_desc = BufferDesc {
             memory: Memory::Default,
             size: 4 * 6,
-            usage: BufferUsage::Index,
+            usage: BufferUsage::General,
         };
         let indices = device.create_buffer(&buffer_desc);
         device.set_object_name(indices, c"textureExampleIndexBuffer");
@@ -290,7 +274,7 @@ impl TextureRenderData {
         let staging_buffer = device.create_buffer(&BufferDesc {
             memory: Memory::Default,
             size: image_ptr.size as u64,
-            usage: BufferUsage::Storage,
+            usage: BufferUsage::General,
         });
         unsafe {
             let ptr = device.buffer_host_ptr(staging_buffer);
