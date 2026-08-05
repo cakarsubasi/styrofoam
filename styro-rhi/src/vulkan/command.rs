@@ -54,6 +54,11 @@ pub(super) struct SemaphoreInfo {
     pub(super) stage: Stage,
 }
 
+pub(super) struct RenderPassState {
+    depth_test: bool,
+    stencil_test: bool,
+}
+
 pub struct CommandBuffer {
     // Handles
     pub(super) device: Arc<DeviceHandles>,
@@ -66,6 +71,8 @@ pub struct CommandBuffer {
     pub(super) layout_transition_queue: Vec<LayoutTransition>,
     // Presentation state
     pub(super) presentation: Option<GpuPtr>,
+    // Render pass state
+    pub(super) render_pass_state: Option<RenderPassState>,
 }
 
 // Common helpers
@@ -190,6 +197,31 @@ impl CommandBuffer {
             }];
 
             self.device.inner.cmd_set_scissor(self.inner, 0, &scissors);
+        }
+    }
+
+    unsafe fn set_stencil_state(&self, flags: vk::StencilFaceFlags, info: &StencilInfo) {
+        unsafe {
+            self.device
+                .inner
+                .cmd_set_stencil_write_mask(self.inner, flags, info.write_mask);
+
+            self.device
+                .inner
+                .cmd_set_stencil_compare_mask(self.inner, flags, info.read_mask);
+
+            self.device
+                .inner
+                .cmd_set_stencil_reference(self.inner, flags, info.reference);
+
+            self.device.inner.cmd_set_stencil_op(
+                self.inner,
+                flags,
+                info.fail_op.into(),
+                info.pass_op.into(),
+                info.depth_fail_op.into(),
+                info.compare_op.into(),
+            );
         }
     }
 }
@@ -569,8 +601,51 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_depth_stencil_state(&mut self, _state: DepthStencilState) {
-        todo!()
+    fn set_depth_stencil_state(&mut self, state: DepthStencilState) {
+        if let Some(RenderPassState {
+            depth_test,
+            stencil_test,
+        }) = self.render_pass_state
+        {
+            unsafe {
+                if depth_test {
+                    self.device
+                        .inner
+                        .cmd_set_depth_test_enable(self.inner, true);
+
+                    self.device
+                        .inner
+                        .cmd_set_depth_bias_enable(self.inner, true);
+
+                    self.device.inner.cmd_set_depth_bias(
+                        self.inner,
+                        state.depth_bias,
+                        state.depth_bias_clamp,
+                        state.depth_bias_slope_factor,
+                    );
+
+                    self.device
+                        .inner
+                        .cmd_set_depth_compare_op(self.inner, state.depth_test.into());
+                }
+
+                if stencil_test {
+                    self.device
+                        .inner
+                        .cmd_set_stencil_test_enable(self.inner, true);
+
+                    if state.stencil_back == state.stencil_front {
+                        self.set_stencil_state(
+                            vk::StencilFaceFlags::FRONT_AND_BACK,
+                            &state.stencil_back,
+                        );
+                    } else {
+                        self.set_stencil_state(vk::StencilFaceFlags::FRONT, &state.stencil_front);
+                        self.set_stencil_state(vk::StencilFaceFlags::BACK, &state.stencil_back);
+                    }
+                }
+            }
+        }
     }
 
     fn set_blend_state(&mut self, state: BlendState) {
@@ -715,13 +790,20 @@ impl CommandRHI for CommandBuffer {
                 .inner
                 .cmd_begin_rendering(self.inner, &rendering_info);
 
-            //
+            // We save if we
+            self.render_pass_state = Some(RenderPassState {
+                depth_test: desc.depth_target.is_some(),
+                stencil_test: desc.stencil_target.is_some(),
+            });
+
             self.set_fixed_dynamic_states(extent);
         }
     }
 
     fn end_render_pass(&mut self) {
         unsafe {
+            self.render_pass_state = None;
+
             self.device.inner.cmd_end_rendering(self.inner);
         }
     }

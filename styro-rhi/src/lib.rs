@@ -30,6 +30,7 @@ impl From<ash::vk::Result> for Error {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
     Never = 0,
     Less = 1,
@@ -56,12 +57,66 @@ impl From<CompareOp> for vk::CompareOp {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StencilOp {
+    Keep = 0,
+    Zero = 1,
+    Replace = 2,
+    IncrementAndClamp = 3,
+    DecrementAndClamp = 4,
+    Invert = 5,
+    IncrementAndWrap = 6,
+    DecrementAndWrap = 7,
+}
+
+impl From<StencilOp> for vk::StencilOp {
+    fn from(value: StencilOp) -> Self {
+        match value {
+            StencilOp::Keep => vk::StencilOp::KEEP,
+            StencilOp::Zero => vk::StencilOp::ZERO,
+            StencilOp::Replace => vk::StencilOp::REPLACE,
+            StencilOp::IncrementAndClamp => vk::StencilOp::INCREMENT_AND_CLAMP,
+            StencilOp::DecrementAndClamp => vk::StencilOp::DECREMENT_AND_CLAMP,
+            StencilOp::Invert => vk::StencilOp::INVERT,
+            StencilOp::IncrementAndWrap => vk::StencilOp::INCREMENT_AND_WRAP,
+            StencilOp::DecrementAndWrap => vk::StencilOp::DECREMENT_AND_WRAP,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StencilInfo {
+    pub compare_op: CompareOp,
+    pub fail_op: StencilOp,
+    pub pass_op: StencilOp,
+    pub depth_fail_op: StencilOp,
+    pub reference: u32,
+    pub read_mask: u32,
+    pub write_mask: u32,
+}
+impl Default for StencilInfo {
+    fn default() -> Self {
+        Self {
+            compare_op: CompareOp::Always,
+            fail_op: StencilOp::Keep,
+            pass_op: StencilOp::Keep,
+            depth_fail_op: StencilOp::Keep,
+            reference: 0,
+            read_mask: u32::MAX,
+            write_mask: u32::MAX,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct DepthStencilState {
     //mode: DepthFlags,
     pub depth_test: CompareOp,
     pub depth_bias: f32,
     pub depth_bias_slope_factor: f32,
     pub depth_bias_clamp: f32,
+    pub stencil_front: StencilInfo,
+    pub stencil_back: StencilInfo,
 }
 
 #[derive(Debug, Clone, Copy)]

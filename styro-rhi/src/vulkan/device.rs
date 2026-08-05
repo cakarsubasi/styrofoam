@@ -699,6 +699,7 @@ impl QueueRHI for Queue {
                 wait: vec![],
                 layout_transition_queue: vec![],
                 presentation: None,
+                render_pass_state: None,
             }
         }
     }
