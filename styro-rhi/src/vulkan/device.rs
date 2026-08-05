@@ -1031,7 +1031,8 @@ impl Buffer {
                 .usage(
                     buffer_usage.usage()
                         | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS
-                        | vk::BufferUsageFlags::TRANSFER_SRC,
+                        | vk::BufferUsageFlags::TRANSFER_SRC
+                        | vk::BufferUsageFlags::TRANSFER_DST,
                 );
 
             let allocation_info = desc.memory.vma_options();
