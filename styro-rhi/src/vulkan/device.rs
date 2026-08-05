@@ -327,8 +327,8 @@ impl DeviceRHI for Device {
                 queue: QueuePool::new(&self.device(), 0, command_pools, command_buffers_per_pool),
                 //swapchain: self.swapchain.as_ref().map(|s| Arc::downgrade(&s)),
             },
-            QueueType::Compute => todo!(),
-            QueueType::Copy => todo!(),
+            //QueueType::Compute => todo!(),
+            //QueueType::Copy => todo!(),
         }
     }
 
@@ -785,25 +785,25 @@ impl DescriptorHeap {
             let compare_op = if let Some(compare_op) = desc.compare_op {
                 compare_op
             } else {
-                vk::CompareOp::NEVER // doesn't matter
+                CompareOp::Never // doesn't matter
             };
 
             let samplers = [
                 vk::SamplerCreateInfo::default()
                     //.flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
-                    .mag_filter(desc.mag_filter) // Expose
-                    .min_filter(desc.min_filter) // Expose
-                    .mipmap_mode(desc.mipmap_mode)
-                    .address_mode_u(desc.address_mode[0])
-                    .address_mode_v(desc.address_mode[1])
-                    .address_mode_w(desc.address_mode[2])
+                    .mag_filter(desc.mag_filter.into())
+                    .min_filter(desc.min_filter.into())
+                    .mipmap_mode(desc.mipmap_mode.into())
+                    .address_mode_u(desc.address_mode[0].into())
+                    .address_mode_v(desc.address_mode[1].into())
+                    .address_mode_w(desc.address_mode[2].into())
                     .anisotropy_enable(anisotropy_enable)
                     .max_anisotropy(max_anisotropy)
                     .mip_lod_bias(desc.lod_bias)
                     .min_lod(desc.lod_range[0])
                     .max_lod(desc.lod_range[1])
                     .compare_enable(compare_enable)
-                    .compare_op(compare_op)
+                    .compare_op(compare_op.into())
                     .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
                     .unnormalized_coordinates(false), // don't support
             ];
@@ -826,7 +826,7 @@ impl DescriptorHeap {
                 .data(vk::ResourceDescriptorDataEXT {
                     p_image: &vk::ImageDescriptorInfoEXT {
                         p_view: &vk::ImageViewCreateInfo::default()
-                            .view_type(image_type_to_image_view_type(image.desc.ty))
+                            .view_type(image.desc.ty.into())
                             .format(image.desc.format)
                             .image(image.inner)
                             .subresource_range(vk::ImageSubresourceRange {
@@ -1211,7 +1211,7 @@ impl Image {
             let layout = vk::ImageLayout::UNDEFINED;
             let image_info = vk::ImageCreateInfo::default()
                 //.flags()
-                .image_type(description.ty)
+                .image_type(description.ty.into())
                 .format(description.format)
                 .extent(vk::Extent3D {
                     width: description.dimensions[0],
@@ -1247,7 +1247,7 @@ impl Image {
                         .inner
                         .create_image_view(
                             &vk::ImageViewCreateInfo::default()
-                                .view_type(image_type_to_image_view_type(description.ty))
+                                .view_type(description.ty.into())
                                 .format(description.format)
                                 .image(image)
                                 .subresource_range(vk::ImageSubresourceRange {

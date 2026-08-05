@@ -601,7 +601,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_depth_stencil_state(&mut self, state: DepthStencilState) {
+    fn set_depth_stencil_state(&mut self, state: &DepthStencilState) {
         if let Some(RenderPassState {
             depth_test,
             stencil_test,
@@ -648,7 +648,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_blend_state(&mut self, state: BlendState) {
+    fn set_blend_state(&mut self, state: &BlendState) {
         unsafe {
             let extended_dynamic_state3 = &self.device.extended_dynamic_state3;
 

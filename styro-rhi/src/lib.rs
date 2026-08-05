@@ -354,7 +354,30 @@ pub enum ImageUsage {
     Attachment,
 }
 
-pub type ImageType = vk::ImageType;
+#[derive(Debug, Clone, Copy)]
+pub enum ImageType {
+    Type1D = 0,
+    Type2D = 1,
+    Type3D = 2,
+}
+impl From<ImageType> for vk::ImageType {
+    fn from(value: ImageType) -> Self {
+        match value {
+            ImageType::Type1D => vk::ImageType::TYPE_1D,
+            ImageType::Type2D => vk::ImageType::TYPE_2D,
+            ImageType::Type3D => vk::ImageType::TYPE_3D,
+        }
+    }
+}
+impl From<ImageType> for vk::ImageViewType {
+    fn from(value: ImageType) -> Self {
+        match value {
+            ImageType::Type1D => vk::ImageViewType::TYPE_1D,
+            ImageType::Type2D => vk::ImageViewType::TYPE_2D,
+            ImageType::Type3D => vk::ImageViewType::TYPE_3D,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct ImageDesc {
@@ -369,7 +392,7 @@ pub struct ImageDesc {
 impl Default for ImageDesc {
     fn default() -> Self {
         Self {
-            ty: ImageType::TYPE_2D,
+            ty: ImageType::Type2D,
             dimensions: [0, 0, 0],
             mip_count: 1,
             layer_count: 1,
@@ -380,27 +403,72 @@ impl Default for ImageDesc {
     }
 }
 
-pub type Filter = ash::vk::Filter;
-pub type MipmapMode = ash::vk::SamplerMipmapMode;
-pub type AddressMode = ash::vk::SamplerAddressMode;
+#[derive(Debug, Clone, Copy)]
+pub enum Filter {
+    Nearest = 0,
+    Linear = 1,
+}
+impl From<Filter> for vk::Filter {
+    fn from(value: Filter) -> Self {
+        match value {
+            Filter::Nearest => vk::Filter::NEAREST,
+            Filter::Linear => vk::Filter::LINEAR,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum MipmapMode {
+    Nearest = 0,
+    Linear = 1,
+}
+impl From<MipmapMode> for vk::SamplerMipmapMode {
+    fn from(value: MipmapMode) -> Self {
+        match value {
+            MipmapMode::Nearest => vk::SamplerMipmapMode::NEAREST,
+            MipmapMode::Linear => vk::SamplerMipmapMode::LINEAR,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum SamplerAddressMode {
+    #[default]
+    Repeat = 0,
+    MirroredRepeat = 1,
+    ClampToEdge = 2,
+    ClampToBorder = 3,
+    MirrorClampToEdge = 4,
+}
+impl From<SamplerAddressMode> for vk::SamplerAddressMode {
+    fn from(value: SamplerAddressMode) -> Self {
+        match value {
+            SamplerAddressMode::Repeat => vk::SamplerAddressMode::REPEAT,
+            SamplerAddressMode::MirroredRepeat => vk::SamplerAddressMode::MIRRORED_REPEAT,
+            SamplerAddressMode::ClampToEdge => vk::SamplerAddressMode::CLAMP_TO_EDGE,
+            SamplerAddressMode::ClampToBorder => vk::SamplerAddressMode::CLAMP_TO_BORDER,
+            SamplerAddressMode::MirrorClampToEdge => vk::SamplerAddressMode::MIRROR_CLAMP_TO_EDGE,
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct SamplerDesc {
     pub mag_filter: Filter,
     pub min_filter: Filter,
     pub mipmap_mode: MipmapMode,
-    pub address_mode: [AddressMode; 3],
+    pub address_mode: [SamplerAddressMode; 3],
     pub anisotropy: f32,
     pub lod_bias: f32,
     pub lod_range: [f32; 2],
-    pub compare_op: Option<ash::vk::CompareOp>,
+    pub compare_op: Option<CompareOp>,
 }
 impl Default for SamplerDesc {
     fn default() -> Self {
         Self {
-            mag_filter: Default::default(),
-            min_filter: Default::default(),
-            mipmap_mode: Default::default(),
+            mag_filter: Filter::Linear,
+            min_filter: Filter::Linear,
+            mipmap_mode: MipmapMode::Linear,
             address_mode: Default::default(),
             anisotropy: Default::default(),
             lod_bias: Default::default(),
@@ -425,8 +493,10 @@ type UVec3 = [u32; 3];
 
 pub enum QueueType {
     Graphics, // Graphics, Compute, and Copy
-    Compute,  // Compute and Copy
-    Copy,     // Copy only
+              // Multiple queues require handling queue ownership, so there is no point
+              // until I figure that out
+              //Compute,  // Compute and Copy
+              //Copy,     // Copy only
 }
 
 pub trait DeviceRHI {
@@ -478,7 +548,8 @@ pub trait QueueRHI {
     fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error>;
 }
 
-pub type Stage = ash::vk::PipelineStageFlags2;
+pub type Stage = vk::PipelineStageFlags2;
+pub type ImageLayout = vk::ImageLayout;
 
 pub type PushData<'a> = &'a [u8];
 
@@ -527,14 +598,14 @@ pub trait CommandRHI {
         before: Stage,
         after: Stage,
         image: Self::GpuPtr,
-        layout: ash::vk::ImageLayout,
+        layout: ImageLayout,
     );
     fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
     fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
 
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline);
-    fn set_depth_stencil_state(&mut self, state: DepthStencilState);
-    fn set_blend_state(&mut self, state: BlendState);
+    fn set_depth_stencil_state(&mut self, state: &DepthStencilState);
+    fn set_blend_state(&mut self, state: &BlendState);
 
     fn gpu_dispatch(&mut self, data: PushData, dimensions: UVec3);
     fn gpu_dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr);

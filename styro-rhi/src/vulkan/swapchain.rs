@@ -13,6 +13,8 @@ use super::device::ImageData;
 use crate::Error;
 use crate::GpuPtr;
 use crate::ImageDesc;
+use crate::ImageType;
+use crate::ImageUsage;
 use crate::SwapchainInfo;
 use crate::SwapchainRHI;
 use crate::WindowSystemData;
@@ -367,13 +369,13 @@ impl Swapchain {
                         inner: image,
                         view: Some(view),
                         desc: ImageDesc {
-                            ty: vk::ImageType::TYPE_2D,
+                            ty: ImageType::Type2D,
                             dimensions,
                             mip_count: 1,
                             layer_count: 1,
                             sample_count: 1,
                             format: self.info.format,
-                            usage: crate::ImageUsage::Attachment,
+                            usage: ImageUsage::Attachment,
                         },
                         current_layout: Cell::new(vk::ImageLayout::UNDEFINED),
                         data: ImageData::Swapchain(super::device::SwapchainImageData {
