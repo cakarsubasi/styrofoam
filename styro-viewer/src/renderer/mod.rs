@@ -10,6 +10,7 @@ use styro_rhi::Cull;
 use styro_rhi::Device;
 use styro_rhi::DeviceRHI;
 use styro_rhi::Error;
+use styro_rhi::Format;
 use styro_rhi::GpuPtr;
 use styro_rhi::ImageBlitInfo;
 use styro_rhi::ImageCopyInfo;
@@ -37,7 +38,6 @@ use styro_rhi::SwapchainRHI as _;
 use styro_rhi::WindowSystemData;
 use styro_rhi::WindowingSystem;
 use styro_rhi::ash;
-use styro_rhi::ash::vk::Format;
 use styro_rhi::read_spv;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
@@ -78,7 +78,7 @@ impl Renderer {
             },
             &SwapchainInfo {
                 size: 2,
-                format: Format::R8G8B8A8_SRGB,
+                format: Format::R8G8B8A8_Srgb,
                 color_space: ColorSpace::SRGB_NONLINEAR,
             },
         );
@@ -86,7 +86,7 @@ impl Renderer {
             .map(|_| {
                 device_rhi.create_image(&ImageDesc {
                     dimensions: [800, 600, 1],
-                    format: vk::Format::R8G8B8A8_UNORM,
+                    format: Format::R8G8B8A8_Unorm,
                     ..Default::default()
                 })
             })
@@ -184,7 +184,7 @@ impl TriangleRenderData {
             entry: c"triangle_frag",
         };
         let description = RasterDescription {
-            color_formats: &[vk::Format::R8G8B8A8_SRGB],
+            color_formats: &[Format::R8G8B8A8_Srgb],
             cull: Cull::NONE,
             ..Default::default()
         };
@@ -240,7 +240,7 @@ impl TextureRenderData {
             entry: c"fragMain",
         };
         let description = RasterDescription {
-            color_formats: &[vk::Format::R8G8B8A8_UNORM],
+            color_formats: &[Format::R8G8B8A8_Unorm],
             cull: Cull::NONE,
             ..Default::default()
         };
@@ -269,7 +269,7 @@ impl TextureRenderData {
 
         let image_ptr = device.create_image(&ImageDesc {
             dimensions: [dimensions.0, dimensions.1, 1],
-            format: vk::Format::R8G8B8A8_UNORM,
+            format: Format::R8G8B8A8_Unorm,
             ..Default::default()
         });
         let staging_buffer = device.create_buffer(&BufferDesc {
@@ -423,7 +423,7 @@ impl UiDataGpu {
             entry: c"fragMain",
         };
         let description = RasterDescription {
-            color_formats: &[vk::Format::R8G8B8A8_SRGB],
+            color_formats: &[Format::R8G8B8A8_Srgb],
             cull: Cull::NONE,
             ..Default::default()
         };
