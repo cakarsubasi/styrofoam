@@ -260,7 +260,7 @@ impl Swapchain {
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface.inner)
             .image_extent(surface_caps.current_extent)
-            .image_format(info.format)
+            .image_format(info.format.into())
             .image_color_space(info.color_space)
             .image_usage(
                 vk::ImageUsageFlags::TRANSFER_DST
@@ -349,7 +349,7 @@ impl Swapchain {
                     let view = device.inner.create_image_view(
                         &vk::ImageViewCreateInfo::default()
                             .view_type(vk::ImageViewType::TYPE_2D)
-                            .format(self.info.format)
+                            .format(self.info.format.into())
                             .image(image)
                             .subresource_range(vk::ImageSubresourceRange {
                                 aspect_mask: vk::ImageAspectFlags::COLOR,

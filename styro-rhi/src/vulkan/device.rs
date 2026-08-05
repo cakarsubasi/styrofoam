@@ -410,11 +410,17 @@ impl DeviceRHI for Device {
             .vertex_attribute_descriptions(&[])
             .vertex_binding_descriptions(&[]);
 
+        let color_formats: Vec<_> = description
+            .color_formats
+            .iter()
+            .map(|&format| format.into())
+            .collect();
+
         let mut rendering_create_info = vk::PipelineRenderingCreateInfo::default()
             .view_mask(0) // hmmmm
-            .color_attachment_formats(description.color_formats)
-            .depth_attachment_format(description.depth_format)
-            .stencil_attachment_format(description.stencil_format);
+            .color_attachment_formats(&color_formats)
+            .depth_attachment_format(description.depth_format.into())
+            .stencil_attachment_format(description.stencil_format.into());
 
         let (cull_mode, front_face) = description.cull.to_vk();
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
@@ -824,7 +830,7 @@ impl DescriptorHeap {
                     p_image: &vk::ImageDescriptorInfoEXT {
                         p_view: &vk::ImageViewCreateInfo::default()
                             .view_type(image.desc.ty.into())
-                            .format(image.desc.format)
+                            .format(image.desc.format.into())
                             .image(image.inner)
                             .subresource_range(vk::ImageSubresourceRange {
                                 aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -1210,7 +1216,7 @@ impl Image {
             let image_info = vk::ImageCreateInfo::default()
                 //.flags()
                 .image_type(description.ty.into())
-                .format(description.format)
+                .format(description.format.into())
                 .extent(vk::Extent3D {
                     width: description.dimensions[0],
                     height: description.dimensions[1],
@@ -1246,7 +1252,7 @@ impl Image {
                         .create_image_view(
                             &vk::ImageViewCreateInfo::default()
                                 .view_type(description.ty.into())
-                                .format(description.format)
+                                .format(description.format.into())
                                 .image(image)
                                 .subresource_range(vk::ImageSubresourceRange {
                                     aspect_mask: vk::ImageAspectFlags::COLOR, // TODO: add multiple attachment types or try to infer the attachment type

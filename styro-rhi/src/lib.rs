@@ -317,8 +317,8 @@ impl Default for RasterDescription<'_> {
             topology: Topology::TriangleList,
             cull: Cull::CCW,
             alpha_to_coverage: false,
-            depth_format: Format::UNDEFINED,
-            stencil_format: Format::UNDEFINED,
+            depth_format: Format::Undefined,
+            stencil_format: Format::Undefined,
             color_formats: &[],
             blend_state: None,
         }
@@ -397,7 +397,7 @@ impl Default for ImageDesc {
             mip_count: 1,
             layer_count: 1,
             sample_count: 1,
-            format: Format::UNDEFINED,
+            format: Format::Undefined,
             usage: ImageUsage::Sampled,
         }
     }
