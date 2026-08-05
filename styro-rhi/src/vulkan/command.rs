@@ -717,9 +717,9 @@ impl CommandRHI for CommandBuffer {
 
                     vk::RenderingAttachmentInfo::default()
                         .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                        .load_op(target.load_op)
-                        .store_op(target.store_op)
-                        .clear_value(target.clear_value)
+                        .load_op(target.load_op.into())
+                        .store_op(target.store_op.into())
+                        .clear_value(target.clear_value.into())
                         .image_view(image_view)
                 })
                 .collect();
@@ -738,9 +738,9 @@ impl CommandRHI for CommandBuffer {
                 });
                 vk::RenderingAttachmentInfo::default()
                     .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
-                    .load_op(target.load_op)
-                    .store_op(target.store_op)
-                    .clear_value(target.clear_value)
+                    .load_op(target.load_op.into())
+                    .store_op(target.store_op.into())
+                    .clear_value(target.clear_value.into())
                     .image_view(image.view.unwrap())
             } else {
                 vk::RenderingAttachmentInfo::default()
@@ -758,9 +758,9 @@ impl CommandRHI for CommandBuffer {
                 });
                 vk::RenderingAttachmentInfo::default()
                     .image_layout(vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL)
-                    .load_op(target.load_op)
-                    .store_op(target.store_op)
-                    .clear_value(target.clear_value)
+                    .load_op(target.load_op.into())
+                    .store_op(target.store_op.into())
+                    .clear_value(target.clear_value.into())
                     .image_view(image.view.unwrap())
             } else {
                 vk::RenderingAttachmentInfo::default()

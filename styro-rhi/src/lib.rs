@@ -11,7 +11,7 @@ pub use ash::util::read_spv;
 
 use ash::vk;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Error {
     DeviceLost,
     SurfaceLost,
@@ -199,28 +199,79 @@ pub struct BlendState {
     pub dst_alpha_factor: BlendFactor,
 }
 
-pub type LoadOp = ash::vk::AttachmentLoadOp;
-pub type StoreOp = ash::vk::AttachmentStoreOp;
-pub type Clear = ash::vk::ClearValue; // Should probably newtype an enum since unions are not ergonomic in rust
+#[derive(Debug, Clone, Copy)]
+pub enum LoadOp {
+    Load = 0,
+    Clear = 1,
+    DontCare = 2,
+}
+impl From<LoadOp> for vk::AttachmentLoadOp {
+    fn from(value: LoadOp) -> Self {
+        match value {
+            LoadOp::Load => vk::AttachmentLoadOp::LOAD,
+            LoadOp::Clear => vk::AttachmentLoadOp::CLEAR,
+            LoadOp::DontCare => vk::AttachmentLoadOp::DONT_CARE,
+        }
+    }
+}
 
+#[derive(Debug, Clone, Copy)]
+pub enum StoreOp {
+    Store = 0,
+    DontCare = 1,
+}
+impl From<StoreOp> for vk::AttachmentStoreOp {
+    fn from(value: StoreOp) -> Self {
+        match value {
+            StoreOp::Store => vk::AttachmentStoreOp::STORE,
+            StoreOp::DontCare => vk::AttachmentStoreOp::DONT_CARE,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Clear {
+    Color(f32, f32, f32, f32),
+    DepthStencil(f32, u32),
+}
+impl From<Clear> for vk::ClearValue {
+    fn from(value: Clear) -> Self {
+        // TODO: could use formats so we have one type of clear
+        match value {
+            Clear::Color(x, y, z, w) => vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [x, y, z, w],
+                },
+            },
+            Clear::DepthStencil(depth, stencil) => vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: depth,
+                    stencil: stencil,
+                },
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct RenderTarget {
     pub image: GpuPtr,
     pub load_op: LoadOp,
     pub store_op: StoreOp,
-    pub clear_value: ash::vk::ClearValue,
+    pub clear_value: Clear,
 }
 impl Default for RenderTarget {
     fn default() -> Self {
         Self {
             image: GpuPtr::null(),
-            load_op: LoadOp::CLEAR,
-            store_op: StoreOp::STORE,
-            clear_value: Default::default(),
+            load_op: LoadOp::Clear,
+            store_op: StoreOp::Store,
+            clear_value: Clear::Color(0.0, 0.0, 0.0, 0.0),
         }
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct RenderPassDescription<'a> {
     pub color_targets: &'a [RenderTarget],
     pub depth_target: Option<RenderTarget>,

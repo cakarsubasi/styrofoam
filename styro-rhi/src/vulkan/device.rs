@@ -967,7 +967,7 @@ impl GpuPtr {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 pub struct GpuPtr {
     handle: u64,
