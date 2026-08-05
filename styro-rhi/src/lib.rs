@@ -282,15 +282,25 @@ pub struct RenderPassDescription<'a> {
     pub stencil_target: Option<RenderTarget>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Topology {
-    TriangleList,
+    PointList = 0,
+    LineList = 1,
+    LineStrip = 2,
+    TriangleList = 3,
+    TriangleStrip = 4,
+    TriangleFan = 5,
 }
+
+#[derive(Debug, Clone, Copy)]
 pub enum Cull {
     CCW,
     CW,
     BOTH,
     NONE,
 }
+
+#[derive(Debug, Clone, Copy)]
 pub struct RasterDescription<'a> {
     pub topology: Topology,
     pub cull: Cull,
@@ -300,6 +310,7 @@ pub struct RasterDescription<'a> {
     pub color_formats: &'a [Format],
     pub blend_state: Option<BlendState>,
 }
+
 impl Default for RasterDescription<'_> {
     fn default() -> Self {
         Self {
@@ -309,36 +320,45 @@ impl Default for RasterDescription<'_> {
             depth_format: Format::UNDEFINED,
             stencil_format: Format::UNDEFINED,
             color_formats: &[],
+            blend_state: None,
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Memory {
+    #[default]
     Default,
     DeviceOnly,
     HostCoherent,
 }
-#[derive(Clone, Copy)]
+
+#[derive(Debug, Clone, Copy, Default)]
 pub enum BufferUsage {
+    #[default]
     General,
     DescriptorHeap,
 }
-#[derive(Clone, Copy)]
+
+#[derive(Debug, Clone, Copy)]
 pub struct BufferDesc {
     pub memory: Memory,
     pub size: u64,
     pub usage: BufferUsage,
 }
-#[derive(Clone, Copy)]
+
+#[derive(Debug, Clone, Copy)]
 pub enum ImageUsage {
     Sampled,
     Storage,
     Attachment,
 }
-#[derive(Clone, Copy)]
+
+pub type ImageType = vk::ImageType;
+
+#[derive(Debug, Clone, Copy)]
 pub struct ImageDesc {
-    pub ty: ash::vk::ImageType,
+    pub ty: ImageType,
     pub dimensions: UVec3,
     pub mip_count: u32,
     pub layer_count: u32,
@@ -349,7 +369,7 @@ pub struct ImageDesc {
 impl Default for ImageDesc {
     fn default() -> Self {
         Self {
-            ty: ash::vk::ImageType::TYPE_2D,
+            ty: ImageType::TYPE_2D,
             dimensions: [0, 0, 0],
             mip_count: 1,
             layer_count: 1,
@@ -359,12 +379,17 @@ impl Default for ImageDesc {
         }
     }
 }
+
+pub type Filter = ash::vk::Filter;
+pub type MipmapMode = ash::vk::SamplerMipmapMode;
+pub type AddressMode = ash::vk::SamplerAddressMode;
+
 #[derive(Clone, Copy)]
 pub struct SamplerDesc {
-    pub mag_filter: ash::vk::Filter,
-    pub min_filter: ash::vk::Filter,
-    pub mipmap_mode: ash::vk::SamplerMipmapMode,
-    pub address_mode: [ash::vk::SamplerAddressMode; 3],
+    pub mag_filter: Filter,
+    pub min_filter: Filter,
+    pub mipmap_mode: MipmapMode,
+    pub address_mode: [AddressMode; 3],
     pub anisotropy: f32,
     pub lod_bias: f32,
     pub lod_range: [f32; 2],
@@ -549,11 +574,13 @@ pub struct WindowSystemData {
     pub display_handle: RawDisplayHandle,
     pub window_handle: RawWindowHandle,
 }
+
 pub type ColorSpace = ash::vk::ColorSpaceKHR;
+
 #[derive(Clone, Copy)]
 pub struct SwapchainInfo {
     pub size: u32,
-    pub format: ash::vk::Format,
+    pub format: Format,
     pub color_space: ColorSpace,
 }
 
