@@ -196,10 +196,7 @@ impl Device {
         todo!()
     }
 
-    pub fn new_with_presentation(
-        display_handle: RawDisplayHandle,
-        window_handle: RawWindowHandle,
-    ) -> Self {
+    pub fn new_with_presentation(display_handle: RawDisplayHandle) -> Self {
         unsafe {
             let instance = Instance::new_with_presentation(display_handle);
 
