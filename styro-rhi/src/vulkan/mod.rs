@@ -1,5 +1,7 @@
 /// command pools, command buffers, pipeline creation, shaders
 pub mod command;
+/// Conversions from RHI types to native Vulkan types
+mod conversions;
 /// Debug messenger and object naming
 mod debug;
 /// The device handle and constructors for handles obtained from the device
