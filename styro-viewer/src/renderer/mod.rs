@@ -15,6 +15,7 @@ use styro_rhi::ImageBlitInfo;
 use styro_rhi::ImageCopyInfo;
 use styro_rhi::ImageDesc;
 use styro_rhi::ImageDescriptor;
+use styro_rhi::ImageLayout;
 use styro_rhi::Memory;
 use styro_rhi::Pipeline;
 use styro_rhi::Queue;
@@ -130,16 +131,16 @@ impl Renderer {
         }
 
         command_buffer.image_barrier(
-            Stage::COLOR_ATTACHMENT_OUTPUT,
-            Stage::BLIT,
+            Stage::ColorAttachmentOutput,
+            Stage::Blit,
             render_target,
-            vk::ImageLayout::GENERAL,
+            ImageLayout::General,
         );
         command_buffer.image_barrier(
-            Stage::BLIT,
-            Stage::BOTTOM_OF_PIPE,
+            Stage::Blit,
+            Stage::BottomOfPipe,
             swapchain_image,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            ImageLayout::TransferDstOptimal,
         );
 
         command_buffer.blit_image(
@@ -153,7 +154,7 @@ impl Renderer {
         );
 
         command_buffer.signal_after(
-            vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+            Stage::BottomOfPipe,
             &self.state.frame_semaphore,
             *next_frame,
         );
@@ -329,21 +330,16 @@ impl TextureRenderData {
 
     fn upload(&self, device: &mut Device, command_buffer: &mut CommandBuffer) {
         command_buffer.image_barrier(
-            Stage::HOST,
-            Stage::TRANSFER,
+            Stage::Host,
+            Stage::Transfer,
             self.texture,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            ImageLayout::TransferDstOptimal,
         );
         command_buffer.copy_to_image(self.staging_buffer, self.texture);
     }
 
     fn draw(&self, device: &Device, command_buffer: &mut CommandBuffer, framebuffer: GpuPtr) {
-        command_buffer.image_barrier(
-            Stage::HOST,
-            Stage::empty(),
-            self.texture,
-            vk::ImageLayout::GENERAL,
-        );
+        command_buffer.image_barrier(Stage::Host, Stage::None, self.texture, ImageLayout::General);
         let mut resource_heap = self.resource_heap;
         let image_descriptor = device.get_image_descriptor(self.texture);
         unsafe {
