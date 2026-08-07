@@ -197,6 +197,24 @@ impl CommandBuffer {
             }];
 
             self.device.inner.cmd_set_scissor(self.inner, 0, &scissors);
+
+            self.set_depth_stencil_state(&DepthStencilState {
+                depth_test: CompareOp::Always,
+                depth_bias: 0.0,
+                depth_bias_slope_factor: 0.0,
+                depth_bias_clamp: 0.0,
+                stencil_front: StencilInfo::default(),
+                stencil_back: StencilInfo::default(),
+            });
+
+            self.set_blend_state(&BlendState {
+                color_op: BlendOp::Add,
+                src_color_factor: BlendFactor::SrcColor,
+                dst_color_factor: BlendFactor::DstColor,
+                alpha_op: BlendOp::Add,
+                src_alpha_factor: BlendFactor::SrcAlpha,
+                dst_alpha_factor: BlendFactor::DstAlpha,
+            });
         }
     }
 
@@ -627,6 +645,13 @@ impl CommandRHI for CommandBuffer {
                     self.device
                         .inner
                         .cmd_set_depth_compare_op(self.inner, state.depth_test.into());
+                } else {
+                    self.device
+                        .inner
+                        .cmd_set_depth_test_enable(self.inner, false);
+                    self.device
+                        .inner
+                        .cmd_set_depth_bias_enable(self.inner, false);
                 }
 
                 if stencil_test {
@@ -666,6 +691,12 @@ impl CommandRHI for CommandBuffer {
                 self.inner,
                 0,
                 &[color_blend_equation],
+            );
+
+            extended_dynamic_state3.cmd_set_color_write_mask(
+                self.inner,
+                0,
+                &[vk::ColorComponentFlags::RGBA],
             );
         }
     }

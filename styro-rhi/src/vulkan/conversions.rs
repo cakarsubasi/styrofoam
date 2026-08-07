@@ -118,6 +118,30 @@ impl From<Clear> for vk::ClearValue {
     }
 }
 
+impl From<Topology> for vk::PrimitiveTopology {
+    fn from(value: Topology) -> Self {
+        match value {
+            Topology::PointList => vk::PrimitiveTopology::POINT_LIST,
+            Topology::LineList => vk::PrimitiveTopology::LINE_LIST,
+            Topology::LineStrip => vk::PrimitiveTopology::LINE_STRIP,
+            Topology::TriangleList => vk::PrimitiveTopology::TRIANGLE_LIST,
+            Topology::TriangleStrip => vk::PrimitiveTopology::TRIANGLE_STRIP,
+            Topology::TriangleFan => vk::PrimitiveTopology::TRIANGLE_FAN,
+        }
+    }
+}
+
+impl Cull {
+    pub(super) fn to_vk(&self) -> (vk::CullModeFlags, vk::FrontFace) {
+        match self {
+            Cull::CCW => (vk::CullModeFlags::BACK, vk::FrontFace::COUNTER_CLOCKWISE),
+            Cull::CW => (vk::CullModeFlags::BACK, vk::FrontFace::CLOCKWISE),
+            Cull::BOTH => (vk::CullModeFlags::FRONT_AND_BACK, vk::FrontFace::CLOCKWISE),
+            Cull::NONE => (vk::CullModeFlags::NONE, vk::FrontFace::CLOCKWISE),
+        }
+    }
+}
+
 impl From<ImageType> for vk::ImageType {
     fn from(value: ImageType) -> Self {
         match value {

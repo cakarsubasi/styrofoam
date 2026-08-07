@@ -188,6 +188,7 @@ pub enum Cull {
 pub struct RasterDescription<'a> {
     pub topology: Topology,
     pub cull: Cull,
+    pub samples: u8,
     pub alpha_to_coverage: bool,
     pub depth_format: Format,
     pub stencil_format: Format,
@@ -200,6 +201,7 @@ impl Default for RasterDescription<'_> {
         Self {
             topology: Topology::TriangleList,
             cull: Cull::CCW,
+            samples: 1,
             alpha_to_coverage: false,
             depth_format: Format::Undefined,
             stencil_format: Format::Undefined,

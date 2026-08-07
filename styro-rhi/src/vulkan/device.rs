@@ -31,17 +31,6 @@ use super::swapchain::Swapchain;
 
 use crate::*;
 
-impl Cull {
-    fn to_vk(&self) -> (vk::CullModeFlags, vk::FrontFace) {
-        match self {
-            Cull::CCW => (vk::CullModeFlags::BACK, vk::FrontFace::COUNTER_CLOCKWISE),
-            Cull::CW => (vk::CullModeFlags::BACK, vk::FrontFace::CLOCKWISE),
-            Cull::BOTH => (vk::CullModeFlags::FRONT_AND_BACK, vk::FrontFace::CLOCKWISE),
-            Cull::NONE => (vk::CullModeFlags::NONE, vk::FrontFace::CLOCKWISE),
-        }
-    }
-}
-
 #[repr(C)]
 pub struct Semaphore {
     pub(super) device: Arc<DeviceHandles>,
@@ -398,13 +387,31 @@ impl DeviceRHI for Device {
         fragment_ir: &ShaderIR,
         description: &RasterDescription,
     ) -> Self::Pipeline {
-        let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+        let dynamic_states = [
+            vk::DynamicState::VIEWPORT,
+            vk::DynamicState::SCISSOR,
+            // depth state is always dynamic
+            vk::DynamicState::DEPTH_WRITE_ENABLE,
+            vk::DynamicState::DEPTH_TEST_ENABLE,
+            vk::DynamicState::DEPTH_BIAS_ENABLE,
+            vk::DynamicState::DEPTH_BIAS,
+            vk::DynamicState::DEPTH_COMPARE_OP,
+            // blend state depends on input arguments
+            vk::DynamicState::COLOR_BLEND_ENABLE_EXT,
+            vk::DynamicState::COLOR_BLEND_EQUATION_EXT,
+            vk::DynamicState::COLOR_WRITE_MASK_EXT,
+        ];
+        let dynamic_states = if description.blend_state.is_none() {
+            dynamic_states.as_slice()
+        } else {
+            &dynamic_states[0..7]
+        };
 
         let dynamic_state =
             vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+            .topology(description.topology.into());
 
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_attribute_descriptions(&[])
@@ -417,43 +424,44 @@ impl DeviceRHI for Device {
             .collect();
 
         let mut rendering_create_info = vk::PipelineRenderingCreateInfo::default()
-            .view_mask(0) // hmmmm
             .color_attachment_formats(&color_formats)
             .depth_attachment_format(description.depth_format.into())
             .stencil_attachment_format(description.stencil_format.into());
 
         let (cull_mode, front_face) = description.cull.to_vk();
         let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
-            .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
             .cull_mode(cull_mode)
             .front_face(front_face)
-            .depth_bias_enable(false)
             .line_width(1.0);
 
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1) // probably should be configurable or use dynamic state
+            .rasterization_samples(vk::SampleCountFlags::from_raw(description.samples as u32))
             .sample_shading_enable(false)
-            .alpha_to_coverage_enable(description.alpha_to_coverage) // gotta learn multisample coverage
+            .alpha_to_coverage_enable(description.alpha_to_coverage)
             .alpha_to_one_enable(false);
 
-        let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::default()
-            .depth_test_enable(true)
-            .depth_write_enable(true)
-            .depth_compare_op(vk::CompareOp::GREATER_OR_EQUAL)
-            .stencil_test_enable(false)
-            .min_depth_bounds(0.0)
-            .max_depth_bounds(1.0);
+        let color_blend_attachments = if let Some(blend) = description.blend_state {
+            [vk::PipelineColorBlendAttachmentState::default()
+                .color_blend_op(blend.color_op.into())
+                .src_color_blend_factor(blend.src_color_factor.into())
+                .dst_color_blend_factor(blend.dst_color_factor.into())
+                .alpha_blend_op(blend.alpha_op.into())
+                .src_alpha_blend_factor(blend.src_alpha_factor.into())
+                .dst_alpha_blend_factor(blend.dst_alpha_factor.into())]
+        } else {
+            [vk::PipelineColorBlendAttachmentState::default()]
+        };
 
-        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
-            .blend_enable(false)
-            .color_write_mask(vk::ColorComponentFlags::RGBA)];
-
-        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
-            .logic_op_enable(false)
-            .logic_op(vk::LogicOp::COPY)
-            .attachments(&color_blend_attachments);
+        let color_blend_state = if let Some(_) = description.blend_state {
+            vk::PipelineColorBlendStateCreateInfo::default()
+                .logic_op_enable(true)
+                .logic_op(vk::LogicOp::COPY)
+                .attachments(&color_blend_attachments)
+        } else {
+            vk::PipelineColorBlendStateCreateInfo::default()
+        };
 
         let viewport_state = vk::PipelineViewportStateCreateInfo::default()
             .scissor_count(1)
@@ -488,7 +496,6 @@ impl DeviceRHI for Device {
             .viewport_state(&viewport_state)
             .rasterization_state(&rasterization_state)
             .multisample_state(&multisample_state)
-            .depth_stencil_state(&depth_stencil_state)
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state)
             .layout(vk::PipelineLayout::null()) // VK_EXT_descriptor_heap

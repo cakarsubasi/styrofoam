@@ -240,6 +240,11 @@ impl Instance {
         let mut shader_untyped_ptrs_feature =
             vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::default()
                 .shader_untyped_pointers(true);
+        let mut extended_dynamic_state3_feature =
+            vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT::default()
+                .extended_dynamic_state3_color_blend_enable(true)
+                .extended_dynamic_state3_color_blend_equation(true)
+                .extended_dynamic_state3_color_write_mask(true);
 
         let mut enabled_features = vk::PhysicalDeviceFeatures2::default()
             .features(vk10_features)
@@ -248,7 +253,8 @@ impl Instance {
             .push(&mut vk13_features)
             .push(&mut vk14_features)
             .push(&mut descriptor_heap_feature)
-            .push(&mut shader_untyped_ptrs_feature);
+            .push(&mut shader_untyped_ptrs_feature)
+            .push(&mut extended_dynamic_state3_feature);
 
         let queue_create_infos = [
             vk::DeviceQueueCreateInfo::default()
