@@ -1,8 +1,6 @@
 use std::ffi::c_char;
 use std::mem::ManuallyDrop;
 
-use super::swapchain::Surface;
-
 use ash::ext;
 use ash::khr;
 use ash::vk;
@@ -11,6 +9,7 @@ use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 
 use super::debug::create_debug_messenger;
+use super::swapchain::Surface;
 
 pub(super) struct Instance {
     entry: ManuallyDrop<ash::Entry>,
@@ -19,7 +18,7 @@ pub(super) struct Instance {
     debug_utils_loader: ext::debug_utils::Instance,
     debug_messenger: vk::DebugUtilsMessengerEXT,
 
-    pub(super) surface_loader: khr::surface::Instance,
+    pub(super) _surface_loader: khr::surface::Instance,
 }
 
 type QueueFamilyIndex = u32;
@@ -27,14 +26,14 @@ type QueueFamilyIndex = u32;
 pub(super) struct DeviceResult {
     pub device: ash::Device,
     pub pdevice: vk::PhysicalDevice,
-    pub graphics_queue_index: QueueFamilyIndex,
-    pub compute_queue_index: QueueFamilyIndex,
-    pub transfer_queue_index: QueueFamilyIndex,
+    pub _graphics_queue_index: QueueFamilyIndex,
+    pub _compute_queue_index: QueueFamilyIndex,
+    pub _transfer_queue_index: QueueFamilyIndex,
 }
 
 impl Instance {
     pub unsafe fn new() -> Self {
-        let entry = ash::Entry::load().expect("Failed to load Vulkan");
+        let entry = unsafe { ash::Entry::load().expect("Failed to load Vulkan") };
         let app_name = c"Ark Renderer";
 
         let layer_names = [c"VK_LAYER_KHRONOS_validation"];
@@ -72,14 +71,16 @@ impl Instance {
             .enabled_extension_names(&extension_names)
             .flags(create_flags);
 
-        let instance: ash::Instance = entry
-            .create_instance(&create_info, None)
-            .expect("Instance creation error");
+        let instance: ash::Instance = unsafe {
+            entry
+                .create_instance(&create_info, None)
+                .expect("Instance creation error")
+        };
 
         let debug_utils_loader = ext::debug_utils::Instance::load(&entry, &instance);
-        let debug_messenger = create_debug_messenger(&debug_utils_loader);
+        let debug_messenger = unsafe { create_debug_messenger(&debug_utils_loader) };
 
-        let surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
+        let _surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
 
         Self {
             entry: ManuallyDrop::new(entry),
@@ -88,7 +89,7 @@ impl Instance {
             debug_utils_loader,
             debug_messenger,
 
-            surface_loader,
+            _surface_loader,
         }
     }
 
@@ -142,7 +143,7 @@ impl Instance {
         let debug_utils_loader = ext::debug_utils::Instance::load(&entry, &instance);
         let debug_messenger = create_debug_messenger(&debug_utils_loader);
 
-        let surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
+        let _surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
 
         Self {
             entry: ManuallyDrop::new(entry),
@@ -151,7 +152,7 @@ impl Instance {
             debug_utils_loader,
             debug_messenger,
 
-            surface_loader,
+            _surface_loader,
         }
     }
 
@@ -268,22 +269,24 @@ impl Instance {
                 .queue_priorities(&[0.5]),
         ];
 
-        let device_create_info = vk::DeviceCreateInfo::default()
-            .enabled_extension_names(&enabled_extension_names)
-            .queue_create_infos(&queue_create_infos)
-            .extend(&mut enabled_features);
+        unsafe {
+            let device_create_info = vk::DeviceCreateInfo::default()
+                .enabled_extension_names(&enabled_extension_names)
+                .queue_create_infos(&queue_create_infos)
+                .extend(&mut enabled_features);
 
-        let device = self
-            .instance
-            .create_device(pdevice, &device_create_info, None)
-            .expect("Failed to create device");
+            let device = self
+                .instance
+                .create_device(pdevice, &device_create_info, None)
+                .expect("Failed to create device");
 
-        DeviceResult {
-            device,
-            pdevice,
-            graphics_queue_index: graphics_queue,
-            compute_queue_index: compute_queue,
-            transfer_queue_index: transfer_queue,
+            DeviceResult {
+                device,
+                pdevice,
+                _graphics_queue_index: graphics_queue,
+                _compute_queue_index: compute_queue,
+                _transfer_queue_index: transfer_queue,
+            }
         }
     }
 

@@ -173,7 +173,6 @@ impl QueuePool {
 
 pub struct Device {
     handles: Arc<DeviceHandles>,
-    // Inner reference should be Weak maybe?
     heap: Arc<RwLock<DescriptorHeap>>,
 }
 
@@ -189,9 +188,9 @@ impl Device {
             let DeviceResult {
                 device,
                 pdevice,
-                graphics_queue_index: _,
-                compute_queue_index: _,
-                transfer_queue_index: _,
+                _graphics_queue_index: _,
+                _compute_queue_index: _,
+                _transfer_queue_index: _,
             } = instance.create_device();
 
             let mut allocator_create_info =
@@ -744,6 +743,9 @@ pub(super) struct DescriptorHeap {
     allocations: HashMap<u64, HeapOwnedResource>,
     device: Arc<DeviceHandles>,
 }
+
+unsafe impl Send for DescriptorHeap {}
+unsafe impl Sync for DescriptorHeap {}
 
 impl DescriptorHeap {
     pub fn new(device: Arc<DeviceHandles>) -> VkResult<Self> {
