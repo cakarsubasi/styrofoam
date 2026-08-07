@@ -1,9 +1,7 @@
-use core::slice;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::mem::ManuallyDrop;
-use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::Weak;
@@ -17,7 +15,6 @@ use ash::ext;
 use ash::vk;
 use ash::vk::TaggedStructure as _;
 use raw_window_handle::RawDisplayHandle;
-use raw_window_handle::RawWindowHandle;
 use vk_mem::Alloc;
 
 use super::command::LayoutTransition;
@@ -737,7 +734,7 @@ impl QueueRHI for Queue {
 }
 
 // Might consider having two hash maps for either type and even splitting GpuPtr
-pub(crate) enum HeapOwnedResource {
+pub(super) enum HeapOwnedResource {
     Buffer(Buffer),
     Image(Image),
 }
@@ -750,26 +747,6 @@ pub(super) struct DescriptorHeap {
 
 impl DescriptorHeap {
     pub fn new(device: Arc<DeviceHandles>) -> VkResult<Self> {
-        eprintln!("heap props:\n{:?}", device.descriptor_heap_props);
-
-        let resource_heap_size = device.descriptor_heap_props.max_resource_heap_size;
-        let sampler_heap_size = device.descriptor_heap_props.max_sampler_heap_size;
-        let image_descriptor_size = device.descriptor_heap_props.image_descriptor_size;
-        let sampler_descriptor_size = device.descriptor_heap_props.sampler_descriptor_size;
-
-        let maximum_images = (resource_heap_size
-            - device
-                .descriptor_heap_props
-                .min_resource_heap_reserved_range)
-            / image_descriptor_size;
-
-        let maximum_samplers = (sampler_heap_size
-            - device.descriptor_heap_props.min_sampler_heap_reserved_range)
-            / sampler_descriptor_size;
-
-        eprintln!("Maximum images: {}", maximum_images);
-        eprintln!("Maximum samplers: {}", maximum_samplers);
-
         Ok(Self {
             handle_counter: AtomicU64::new(1),
             device,
@@ -1153,15 +1130,6 @@ impl ImageDesc {
     }
 }
 
-fn image_type_to_image_view_type(ty: vk::ImageType) -> vk::ImageViewType {
-    match ty {
-        vk::ImageType::TYPE_1D => vk::ImageViewType::TYPE_1D,
-        vk::ImageType::TYPE_2D => vk::ImageViewType::TYPE_2D,
-        vk::ImageType::TYPE_3D => vk::ImageViewType::TYPE_3D,
-        _ => unreachable!(),
-    }
-}
-
 impl ImageUsage {
     fn to_vk(&self) -> vk::ImageUsageFlags {
         return vk::ImageUsageFlags::INPUT_ATTACHMENT
@@ -1170,44 +1138,26 @@ impl ImageUsage {
             | vk::ImageUsageFlags::SAMPLED
             | vk::ImageUsageFlags::TRANSFER_SRC
             | vk::ImageUsageFlags::TRANSFER_DST;
-
-        match self {
-            ImageUsage::Sampled => {
-                vk::ImageUsageFlags::SAMPLED
-                    | vk::ImageUsageFlags::TRANSFER_SRC
-                    | vk::ImageUsageFlags::TRANSFER_DST
-            }
-            ImageUsage::Storage => {
-                vk::ImageUsageFlags::STORAGE
-                    | vk::ImageUsageFlags::TRANSFER_SRC
-                    | vk::ImageUsageFlags::TRANSFER_DST
-            }
-            ImageUsage::Attachment => {
-                vk::ImageUsageFlags::INPUT_ATTACHMENT
-                    | vk::ImageUsageFlags::TRANSFER_SRC
-                    | vk::ImageUsageFlags::TRANSFER_DST
-            }
-        }
     }
 }
 
-pub(crate) struct AllocatedImageData {
+pub(super) struct AllocatedImageData {
     pub size: usize,
     pub allocation: vk_mem::Allocation,
 }
 
-pub(crate) struct SwapchainImageData {
+pub(super) struct SwapchainImageData {
     pub idx: u32,
     pub submit_wait: Cell<vk::Semaphore>,
     pub submit_signal_present_wait: Cell<vk::Semaphore>,
 }
 
-pub(crate) enum ImageData {
+pub(super) enum ImageData {
     Allocated(AllocatedImageData),
     Swapchain(SwapchainImageData),
 }
 
-pub(crate) struct Image {
+pub(super) struct Image {
     pub inner: vk::Image,
     pub view: Option<vk::ImageView>,
     pub desc: ImageDesc,
@@ -1221,7 +1171,6 @@ impl Image {
         unsafe {
             let layout = vk::ImageLayout::UNDEFINED;
             let image_info = vk::ImageCreateInfo::default()
-                //.flags()
                 .image_type(description.ty.into())
                 .format(description.format.into())
                 .extent(vk::Extent3D {
@@ -1235,13 +1184,10 @@ impl Image {
                 .tiling(vk::ImageTiling::OPTIMAL)
                 .usage(description.usage.to_vk())
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
-                .initial_layout(layout)
-            //.initial_layout(vk::ImageLayout::UNDEFINED);
-                ;
+                .initial_layout(layout);
 
             let allocation_info = vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
-                //flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
                 ..Default::default()
             };
 
@@ -1253,7 +1199,7 @@ impl Image {
             let memory_req = device.inner.get_image_memory_requirements(image);
 
             let view = match description.usage {
-                _ => Some(
+                ImageUsage::Attachment => Some(
                     device
                         .inner
                         .create_image_view(
@@ -1294,7 +1240,7 @@ impl Image {
     pub fn len(&self) -> usize {
         match &self.data {
             ImageData::Allocated(allocated_image_data) => allocated_image_data.size,
-            ImageData::Swapchain(swapchain_image_data) => 9999999999, // need to figure this out
+            ImageData::Swapchain(_swapchain_image_data) => 9999999999, // need to figure this out
         }
     }
 
