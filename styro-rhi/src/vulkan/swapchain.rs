@@ -36,7 +36,7 @@ impl Drop for Surface {
     }
 }
 
-pub struct SwapchainHandle {
+struct SwapchainHandle {
     device: Arc<DeviceHandles>,
     swapchain: vk::SwapchainKHR,
     swapchain_loader: khr::swapchain::Device,
@@ -155,7 +155,7 @@ impl SwapchainRHI for Swapchain {
     }
 }
 
-pub struct PresentationResources {
+struct PresentationResources {
     acquire_semaphores: Vec<vk::Semaphore>, // frames_in_flight
     submit_semaphores: Vec<vk::Semaphore>,  // swapchain_size
     image_handles: Vec<GpuPtr>,
@@ -176,13 +176,13 @@ impl PresentationResources {
         self.acquire_semaphores.len()
     }
 
-    fn swapchain_size(&self) -> usize {
-        self.image_handles.len()
-    }
+    //fn swapchain_size(&self) -> usize {
+    //    self.image_handles.len()
+    //}
 }
 
 impl Swapchain {
-    pub(crate) unsafe fn new(
+    pub(super) unsafe fn new(
         device: Arc<DeviceHandles>,
         heap: Arc<RwLock<DescriptorHeap>>,
         window: &WindowSystemData,
@@ -431,27 +431,6 @@ impl Swapchain {
         }
 
         Ok(())
-    }
-
-    fn choose_surface_format(
-        device: &DeviceHandles,
-        surface_loader: &khr::surface::Instance,
-        surface: &Surface,
-    ) -> VkResult<vk::SurfaceFormatKHR> {
-        unsafe {
-            let surface_formats = surface_loader
-                .get_physical_device_surface_formats(device.pdevice, surface.inner)?;
-
-            let surface_format = surface_formats
-                .iter()
-                .find(|&format| {
-                    format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
-                        && format.format == vk::Format::R8G8B8A8_SRGB
-                })
-                .unwrap_or(&surface_formats[0]);
-
-            Ok(*surface_format)
-        }
     }
 
     fn destroy_resources(&mut self) {
