@@ -285,15 +285,15 @@ impl DeviceRHI for Device {
     type Queue = Queue;
     type GpuPtr = GpuPtr;
 
-    fn create_buffer(&mut self, details: &BufferDesc) -> Self::GpuPtr {
+    fn create_buffer(&mut self, details: &BufferInfo) -> Self::GpuPtr {
         self.heap.write().unwrap().create_buffer(details)
     }
 
-    fn create_image(&mut self, details: &ImageDesc) -> Self::GpuPtr {
+    fn create_image(&mut self, details: &ImageInfo) -> Self::GpuPtr {
         self.heap.write().unwrap().create_image(details)
     }
 
-    fn buffer_host_ptr(&self, ptr: Self::GpuPtr) -> *mut u8 {
+    fn buffer_host_addr(&self, ptr: Self::GpuPtr) -> *mut u8 {
         let heap = self.heap.read().unwrap();
 
         let buffer = heap.ptr_to_buffer(ptr);
@@ -302,7 +302,7 @@ impl DeviceRHI for Device {
         unsafe { buffer.mapped_ptr.unwrap().byte_add(ptr.offset as usize) }
     }
 
-    fn buffer_device_ptr(&self, ptr: Self::GpuPtr) -> u64 {
+    fn buffer_device_addr(&self, ptr: Self::GpuPtr) -> u64 {
         let heap = self.heap.read().unwrap();
 
         let buffer = heap.ptr_to_buffer(ptr);
@@ -315,7 +315,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn delete_ptr(&mut self, ptr: Self::GpuPtr) {
+    fn destroy_ptr(&mut self, ptr: Self::GpuPtr) {
         self.heap.write().unwrap().free(ptr);
     }
 
@@ -557,7 +557,7 @@ impl DeviceRHI for Device {
         descriptor
     }
 
-    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> SamplerDescriptor {
+    fn get_sampler_descriptor(&self, desc: &SamplerInfo) -> SamplerDescriptor {
         let heap = self.heap.read().unwrap();
         let mut descriptor = SamplerDescriptor { inner: [0u64; 4] };
         heap.write_sampler_descriptor(desc, &mut descriptor);
@@ -779,7 +779,7 @@ impl DescriptorHeap {
         })
     }
 
-    fn write_sampler_descriptor(&self, desc: &SamplerDesc, addr: &mut SamplerDescriptor) {
+    fn write_sampler_descriptor(&self, desc: &SamplerInfo, addr: &mut SamplerDescriptor) {
         let device = &self.device;
         let descriptor_heap = &device.descriptor_heap;
 
@@ -874,7 +874,7 @@ impl DescriptorHeap {
         }
     }
 
-    fn create_buffer(&mut self, desc: &BufferDesc) -> GpuPtr {
+    fn create_buffer(&mut self, desc: &BufferInfo) -> GpuPtr {
         let buffer = Buffer::new(Arc::clone(&self.device), desc).unwrap();
 
         let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
@@ -890,7 +890,7 @@ impl DescriptorHeap {
         }
     }
 
-    fn create_image(&mut self, desc: &ImageDesc) -> GpuPtr {
+    fn create_image(&mut self, desc: &ImageInfo) -> GpuPtr {
         // TODO: use format
         let image = Image::new(Arc::clone(&self.device), desc);
 
@@ -1004,7 +1004,7 @@ impl BufferUsage {
 impl Memory {
     fn vma_options(&self) -> vk_mem::AllocationCreateInfo {
         match self {
-            Memory::Default => vk_mem::AllocationCreateInfo {
+            Memory::HostVisible => vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
                 flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
                 ..Default::default()
@@ -1032,7 +1032,7 @@ pub(super) struct Buffer {
 }
 
 impl Buffer {
-    pub fn new(device: Arc<DeviceHandles>, desc: &BufferDesc) -> VkResult<Self> {
+    pub fn new(device: Arc<DeviceHandles>, desc: &BufferInfo) -> VkResult<Self> {
         unsafe {
             let size = desc.size;
             let buffer_usage = desc.usage;
@@ -1143,7 +1143,7 @@ impl Buffer {
     }
 }
 
-impl ImageDesc {
+impl ImageInfo {
     fn sample_count(&self) -> vk::SampleCountFlags {
         match self.sample_count {
             1 => vk::SampleCountFlags::TYPE_1,
@@ -1185,14 +1185,14 @@ pub(super) enum ImageData {
 pub(super) struct Image {
     pub inner: vk::Image,
     pub view: Option<vk::ImageView>,
-    pub desc: ImageDesc,
+    pub desc: ImageInfo,
     pub current_layout: Cell<vk::ImageLayout>,
     pub data: ImageData,
 }
 
 impl Image {
     // Create a 2D Image with the given extent
-    pub fn new(device: Arc<DeviceHandles>, description: &ImageDesc) -> Self {
+    pub fn new(device: Arc<DeviceHandles>, description: &ImageInfo) -> Self {
         unsafe {
             let layout = vk::ImageLayout::UNDEFINED;
             let image_info = vk::ImageCreateInfo::default()

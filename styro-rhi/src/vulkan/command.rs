@@ -198,7 +198,7 @@ impl CommandBuffer {
 
             self.device.inner.cmd_set_scissor(self.inner, 0, &scissors);
 
-            self.set_depth_stencil_state(&DepthStencilState {
+            self.set_depth_stencil_state(&DepthStencilInfo {
                 depth_test: CompareOp::Always,
                 depth_bias: 0.0,
                 depth_bias_slope_factor: 0.0,
@@ -207,7 +207,7 @@ impl CommandBuffer {
                 stencil_back: StencilInfo::default(),
             });
 
-            self.set_blend_state(&BlendState {
+            self.set_blend_state(&BlendInfo {
                 color_op: BlendOp::Add,
                 src_color_factor: BlendFactor::SrcColor,
                 dst_color_factor: BlendFactor::DstColor,
@@ -265,7 +265,7 @@ impl CommandRHI for CommandBuffer {
     type Pipeline = Pipeline;
     type Semaphore = Semaphore;
 
-    fn copy_memory(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
+    fn copy_buffer(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
         let heap = self.heap.read().unwrap();
         let src_buffer = heap.ptr_to_buffer(src);
         let dst_buffer = heap.ptr_to_buffer(dst);
@@ -619,7 +619,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_depth_stencil_state(&mut self, state: &DepthStencilState) {
+    fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo) {
         if let Some(RenderPassState {
             depth_test,
             stencil_test,
@@ -673,7 +673,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_blend_state(&mut self, state: &BlendState) {
+    fn set_blend_state(&mut self, state: &BlendInfo) {
         unsafe {
             let extended_dynamic_state3 = &self.device.extended_dynamic_state3;
 
@@ -726,10 +726,10 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn begin_render_pass(&mut self, desc: &RenderPassDescription) {
+    fn begin_rendering(&mut self, desc: &RenderingInfo) {
         unsafe {
             let color_attachments: Vec<_> = desc
-                .color_targets
+                .color_attachments
                 .iter()
                 .map(|target| {
                     let heap = self.heap.read().unwrap();
@@ -755,7 +755,7 @@ impl CommandRHI for CommandBuffer {
                 })
                 .collect();
 
-            let depth_attachment = if let Some(ref target) = desc.depth_target {
+            let depth_attachment = if let Some(ref target) = desc.depth_attachment {
                 let heap = self.heap.read().unwrap();
                 let image = heap.ptr_to_image(*&target.image);
 
@@ -776,7 +776,7 @@ impl CommandRHI for CommandBuffer {
             } else {
                 vk::RenderingAttachmentInfo::default()
             };
-            let stencil_attachment = if let Some(ref target) = desc.stencil_target {
+            let stencil_attachment = if let Some(ref target) = desc.stencil_attachment {
                 let heap = self.heap.read().unwrap();
                 let image = heap.ptr_to_image(target.image);
                 self.layout_transition_queue.push(LayoutTransition {
@@ -797,7 +797,7 @@ impl CommandRHI for CommandBuffer {
                 vk::RenderingAttachmentInfo::default()
             };
 
-            let extent = if let Some(target) = desc.color_targets.first() {
+            let extent = if let Some(target) = desc.color_attachments.first() {
                 let heap = self.heap.read().unwrap();
                 heap.ptr_to_image(target.image).extent2d()
             } else {
@@ -823,15 +823,15 @@ impl CommandRHI for CommandBuffer {
 
             // We save if we
             self.render_pass_state = Some(RenderPassState {
-                depth_test: desc.depth_target.is_some(),
-                stencil_test: desc.stencil_target.is_some(),
+                depth_test: desc.depth_attachment.is_some(),
+                stencil_test: desc.stencil_attachment.is_some(),
             });
 
             self.set_fixed_dynamic_states(extent);
         }
     }
 
-    fn end_render_pass(&mut self) {
+    fn end_rendering(&mut self) {
         unsafe {
             self.render_pass_state = None;
 

@@ -12,7 +12,7 @@ use super::device::Image;
 use super::device::ImageData;
 use crate::Error;
 use crate::GpuPtr;
-use crate::ImageDesc;
+use crate::ImageInfo;
 use crate::ImageType;
 use crate::ImageUsage;
 use crate::SwapchainInfo;
@@ -368,7 +368,7 @@ impl Swapchain {
                     Ok(Image {
                         inner: image,
                         view: Some(view),
-                        desc: ImageDesc {
+                        desc: ImageInfo {
                             ty: ImageType::Type2D,
                             dimensions,
                             mip_count: 1,

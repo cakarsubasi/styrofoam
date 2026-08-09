@@ -1,6 +1,7 @@
 use core::slice;
 use std::fs::File;
-use styro_rhi::BufferDesc;
+use styro_rhi::Attachment;
+use styro_rhi::BufferInfo;
 use styro_rhi::BufferUsage;
 use styro_rhi::ColorSpace;
 use styro_rhi::CommandBuffer;
@@ -12,8 +13,8 @@ use styro_rhi::Error;
 use styro_rhi::Format;
 use styro_rhi::GpuPtr;
 use styro_rhi::ImageBlitInfo;
-use styro_rhi::ImageDesc;
 use styro_rhi::ImageDescriptor;
+use styro_rhi::ImageInfo;
 use styro_rhi::ImageLayout;
 use styro_rhi::Memory;
 use styro_rhi::Pipeline;
@@ -21,10 +22,9 @@ use styro_rhi::Queue;
 use styro_rhi::QueueRHI;
 use styro_rhi::QueueType;
 use styro_rhi::RasterDescription;
-use styro_rhi::RenderPassDescription;
-use styro_rhi::RenderTarget;
-use styro_rhi::SamplerDesc;
+use styro_rhi::RenderingInfo;
 use styro_rhi::SamplerDescriptor;
+use styro_rhi::SamplerInfo;
 use styro_rhi::Semaphore;
 use styro_rhi::ShaderIR;
 use styro_rhi::Stage;
@@ -33,8 +33,8 @@ use styro_rhi::SwapchainCommandRHI as _;
 use styro_rhi::SwapchainDeviceRHI as _;
 use styro_rhi::SwapchainInfo;
 use styro_rhi::SwapchainRHI as _;
+use styro_rhi::WindowSystem;
 use styro_rhi::WindowSystemData;
-use styro_rhi::WindowingSystem;
 use styro_rhi::instance::DeviceCreateInfo;
 use styro_rhi::read_spv;
 use winit::raw_window_handle::RawDisplayHandle;
@@ -69,7 +69,7 @@ impl Renderer {
                 descriptor_heap: true,
                 dynamic_blend_state: true,
             },
-            presentation: Some(WindowingSystem::Windows),
+            presentation: Some(WindowSystem::Windows),
         });
 
         let graphics_queue =
@@ -89,7 +89,7 @@ impl Renderer {
         );
         let images: Vec<_> = (0..2)
             .map(|_| {
-                device_rhi.create_image(&ImageDesc {
+                device_rhi.create_image(&ImageInfo {
                     dimensions: [800, 600, 1],
                     format: Format::R8G8B8A8_Unorm,
                     usage: styro_rhi::ImageUsage::Attachment,
@@ -196,13 +196,13 @@ impl TriangleRenderData {
         };
 
         let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
-        let buffer_desc = BufferDesc {
-            memory: Memory::Default,
+        let buffer_desc = BufferInfo {
+            memory: Memory::HostVisible,
             size: 4 * 6,
             usage: BufferUsage::General,
         };
         let indices = device.create_buffer(&buffer_desc);
-        let indices_mapped = device.buffer_host_ptr(indices) as *mut u32;
+        let indices_mapped = device.buffer_host_addr(indices) as *mut u32;
         unsafe {
             let slice = slice::from_raw_parts_mut(indices_mapped, 6);
             slice[0] = 0;
@@ -217,10 +217,10 @@ impl TriangleRenderData {
     }
 
     fn draw(&self, command_buffer: &mut CommandBuffer) {
-        command_buffer.begin_render_pass(&Default::default());
+        command_buffer.begin_rendering(&Default::default());
         command_buffer.set_pipeline(&self.pipeline);
         command_buffer.draw_indexed_instanced(&[], self.indices, 1);
-        command_buffer.end_render_pass();
+        command_buffer.end_rendering();
     }
 }
 
@@ -253,14 +253,14 @@ impl TextureRenderData {
 
         let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
         pipeline.set_object_name(c"bindlessTextureExamplePipeline");
-        let buffer_desc = BufferDesc {
-            memory: Memory::Default,
+        let buffer_desc = BufferInfo {
+            memory: Memory::HostVisible,
             size: 4 * 6,
             usage: BufferUsage::General,
         };
         let indices = device.create_buffer(&buffer_desc);
         device.set_object_name(indices, c"textureExampleIndexBuffer");
-        let indices_mapped = device.buffer_host_ptr(indices) as *mut u32;
+        let indices_mapped = device.buffer_host_addr(indices) as *mut u32;
         unsafe {
             let slice = slice::from_raw_parts_mut(indices_mapped, 6);
             const INDEX_BUFFER: [u32; 6] = [0, 1, 2, 0, 2, 3];
@@ -273,18 +273,18 @@ impl TextureRenderData {
         let image = image.to_rgba8();
         let dimensions = image.dimensions();
 
-        let image_ptr = device.create_image(&ImageDesc {
+        let image_ptr = device.create_image(&ImageInfo {
             dimensions: [dimensions.0, dimensions.1, 1],
             format: Format::R8G8B8A8_Unorm,
             ..Default::default()
         });
-        let staging_buffer = device.create_buffer(&BufferDesc {
-            memory: Memory::Default,
+        let staging_buffer = device.create_buffer(&BufferInfo {
+            memory: Memory::HostVisible,
             size: image_ptr.size as u64,
             usage: BufferUsage::General,
         });
         unsafe {
-            let ptr = device.buffer_host_ptr(staging_buffer);
+            let ptr = device.buffer_host_addr(staging_buffer);
             let image = image.iter().as_slice();
             let slice = slice::from_raw_parts_mut(ptr, staging_buffer.size as usize);
             slice[0..image.len()].copy_from_slice(image);
@@ -292,27 +292,27 @@ impl TextureRenderData {
 
         let heap_props = device.get_descriptor_heap_properties();
 
-        let mut resource_heap = device.create_buffer(&BufferDesc {
-            memory: Memory::Default,
+        let mut resource_heap = device.create_buffer(&BufferInfo {
+            memory: Memory::HostVisible,
             size: heap_props.max_resource_heap_size,
             usage: BufferUsage::DescriptorHeap,
         });
-        let mut sampler_heap = device.create_buffer(&BufferDesc {
-            memory: Memory::Default,
+        let mut sampler_heap = device.create_buffer(&BufferInfo {
+            memory: Memory::HostVisible,
             size: heap_props.max_sampler_heap_size,
             usage: BufferUsage::DescriptorHeap,
         });
 
-        let sampler_descriptor = device.get_sampler_descriptor(&SamplerDesc {
+        let sampler_descriptor = device.get_sampler_descriptor(&SamplerInfo {
             ..Default::default()
         });
         unsafe {
-            let resource_heap_ptr = device.buffer_host_ptr(resource_heap);
+            let resource_heap_ptr = device.buffer_host_addr(resource_heap);
             let offset = resource_heap_ptr.align_offset(32);
             resource_heap.offset = offset as u32;
             resource_heap.size -= offset as u32;
 
-            let sampler_heap_ptr = device.buffer_host_ptr(sampler_heap);
+            let sampler_heap_ptr = device.buffer_host_addr(sampler_heap);
             let offset = sampler_heap_ptr.align_offset(32);
             sampler_heap.offset = offset as u32;
             sampler_heap.size -= offset as u32;
@@ -349,7 +349,7 @@ impl TextureRenderData {
         let mut resource_heap = self.resource_heap;
         let image_descriptor = device.get_image_descriptor(self.texture);
         unsafe {
-            let resource_heap_ptr = device.buffer_host_ptr(resource_heap);
+            let resource_heap_ptr = device.buffer_host_addr(resource_heap);
             let offset = resource_heap_ptr.align_offset(32);
             resource_heap.offset = offset as u32;
             resource_heap.size -= offset as u32;
@@ -362,8 +362,8 @@ impl TextureRenderData {
         }
         command_buffer.bind_descriptor_heap(self.resource_heap, self.sampler_heap);
 
-        command_buffer.begin_render_pass(&RenderPassDescription {
-            color_targets: &[RenderTarget {
+        command_buffer.begin_rendering(&RenderingInfo {
+            color_attachments: &[Attachment {
                 image: framebuffer,
                 ..Default::default()
             }],
@@ -376,15 +376,15 @@ impl TextureRenderData {
             self.indices,
             1,
         );
-        command_buffer.end_render_pass();
+        command_buffer.end_rendering();
     }
 
     fn free(&self, device: &mut Device) {
-        device.delete_ptr(self.resource_heap);
-        device.delete_ptr(self.sampler_heap);
-        device.delete_ptr(self.texture);
-        device.delete_ptr(self.staging_buffer);
-        device.delete_ptr(self.indices);
+        device.destroy_ptr(self.resource_heap);
+        device.destroy_ptr(self.sampler_heap);
+        device.destroy_ptr(self.texture);
+        device.destroy_ptr(self.staging_buffer);
+        device.destroy_ptr(self.indices);
     }
 }
 

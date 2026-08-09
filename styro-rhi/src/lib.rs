@@ -75,7 +75,7 @@ impl Default for StencilInfo {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct DepthStencilState {
+pub struct DepthStencilInfo {
     //mode: DepthFlags,
     pub depth_test: CompareOp,
     pub depth_bias: f32,
@@ -118,7 +118,7 @@ pub enum BlendFactor {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BlendState {
+pub struct BlendInfo {
     pub color_op: BlendOp,
     pub src_color_factor: BlendFactor,
     pub dst_color_factor: BlendFactor,
@@ -147,13 +147,13 @@ pub enum Clear {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct RenderTarget {
+pub struct Attachment {
     pub image: GpuPtr,
     pub load_op: LoadOp,
     pub store_op: StoreOp,
     pub clear_value: Clear,
 }
-impl Default for RenderTarget {
+impl Default for Attachment {
     fn default() -> Self {
         Self {
             image: GpuPtr::null(),
@@ -165,10 +165,10 @@ impl Default for RenderTarget {
 }
 
 #[derive(Debug, Default, Clone, Copy)]
-pub struct RenderPassDescription<'a> {
-    pub color_targets: &'a [RenderTarget],
-    pub depth_target: Option<RenderTarget>,
-    pub stencil_target: Option<RenderTarget>,
+pub struct RenderingInfo<'a> {
+    pub color_attachments: &'a [Attachment],
+    pub depth_attachment: Option<Attachment>,
+    pub stencil_attachment: Option<Attachment>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -198,7 +198,7 @@ pub struct RasterDescription<'a> {
     pub depth_format: Format,
     pub stencil_format: Format,
     pub color_formats: &'a [Format],
-    pub blend_state: Option<BlendState>,
+    pub blend_state: Option<BlendInfo>,
 }
 
 impl Default for RasterDescription<'_> {
@@ -219,7 +219,7 @@ impl Default for RasterDescription<'_> {
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Memory {
     #[default]
-    Default,
+    HostVisible,
     DeviceOnly,
     HostCoherent,
 }
@@ -232,7 +232,7 @@ pub enum BufferUsage {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct BufferDesc {
+pub struct BufferInfo {
     pub memory: Memory,
     pub size: u64,
     pub usage: BufferUsage,
@@ -253,7 +253,7 @@ pub enum ImageType {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ImageDesc {
+pub struct ImageInfo {
     pub ty: ImageType,
     pub dimensions: UVec3,
     pub mip_count: u32,
@@ -262,7 +262,7 @@ pub struct ImageDesc {
     pub format: Format,
     pub usage: ImageUsage,
 }
-impl Default for ImageDesc {
+impl Default for ImageInfo {
     fn default() -> Self {
         Self {
             ty: ImageType::Type2D,
@@ -299,7 +299,7 @@ pub enum SamplerAddressMode {
 }
 
 #[derive(Clone, Copy)]
-pub struct SamplerDesc {
+pub struct SamplerInfo {
     pub mag_filter: Filter,
     pub min_filter: Filter,
     pub mipmap_mode: MipmapMode,
@@ -309,7 +309,7 @@ pub struct SamplerDesc {
     pub lod_range: [f32; 2],
     pub compare_op: Option<CompareOp>,
 }
-impl Default for SamplerDesc {
+impl Default for SamplerInfo {
     fn default() -> Self {
         Self {
             mag_filter: Filter::Linear,
@@ -351,16 +351,16 @@ pub trait DeviceRHI {
     type Queue: QueueRHI;
     type GpuPtr;
 
-    fn create_buffer(&mut self, details: &BufferDesc) -> Self::GpuPtr;
-    fn create_image(&mut self, details: &ImageDesc) -> Self::GpuPtr;
+    fn create_buffer(&mut self, details: &BufferInfo) -> Self::GpuPtr;
+    fn create_image(&mut self, details: &ImageInfo) -> Self::GpuPtr;
 
-    fn buffer_host_ptr(&self, ptr: Self::GpuPtr) -> *mut u8;
-    fn buffer_device_ptr(&self, ptr: Self::GpuPtr) -> u64;
+    fn buffer_host_addr(&self, ptr: Self::GpuPtr) -> *mut u8;
+    fn buffer_device_addr(&self, ptr: Self::GpuPtr) -> u64;
 
-    fn delete_ptr(&mut self, ptr: Self::GpuPtr);
+    fn destroy_ptr(&mut self, ptr: Self::GpuPtr);
 
     fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor;
-    fn get_sampler_descriptor(&self, desc: &SamplerDesc) -> SamplerDescriptor;
+    fn get_sampler_descriptor(&self, desc: &SamplerInfo) -> SamplerDescriptor;
 
     fn create_queue(
         &mut self,
@@ -452,7 +452,7 @@ pub trait CommandRHI {
     type Pipeline;
     type Semaphore;
 
-    fn copy_memory(&mut self, src_buffer: Self::GpuPtr, dst_buffer: Self::GpuPtr);
+    fn copy_buffer(&mut self, src_buffer: Self::GpuPtr, dst_buffer: Self::GpuPtr);
 
     fn copy_to_image(&mut self, src_buffer: Self::GpuPtr, dst_image: Self::GpuPtr);
     fn copy_from_image(&mut self, src_image: Self::GpuPtr, dst_buffer: Self::GpuPtr);
@@ -483,14 +483,14 @@ pub trait CommandRHI {
     fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
 
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline);
-    fn set_depth_stencil_state(&mut self, state: &DepthStencilState);
-    fn set_blend_state(&mut self, state: &BlendState);
+    fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo);
+    fn set_blend_state(&mut self, state: &BlendInfo);
 
     fn gpu_dispatch(&mut self, data: PushData, dimensions: UVec3);
     fn gpu_dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr);
 
-    fn begin_render_pass(&mut self, desc: &RenderPassDescription);
-    fn end_render_pass(&mut self);
+    fn begin_rendering(&mut self, desc: &RenderingInfo);
+    fn end_rendering(&mut self);
 
     fn draw_indexed_instanced(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32);
     fn draw_indexed_instanced_indirect(
