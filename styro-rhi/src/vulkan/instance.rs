@@ -8,10 +8,15 @@ use ash::vk::TaggedStructure as _;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 
+use crate::WindowingSystem;
+use crate::instance::DeviceCreateInfo;
+use crate::instance::DeviceFeatures;
+use crate::instance::PhysicalDeviceInfo;
+
 use super::debug::create_debug_messenger;
 use super::swapchain::Surface;
 
-pub(super) struct Instance {
+pub(crate) struct Instance {
     entry: ManuallyDrop<ash::Entry>,
     pub(super) instance: ash::Instance,
 
@@ -31,81 +36,142 @@ pub(super) struct DeviceResult {
     pub _transfer_queue_index: QueueFamilyIndex,
 }
 
-impl Instance {
-    pub unsafe fn new() -> Self {
-        let entry = unsafe { ash::Entry::load().expect("Failed to load Vulkan") };
-        let app_name = c"Ark Renderer";
-
-        let layer_names = [c"VK_LAYER_KHRONOS_validation"];
-        let layers_names_raw: Vec<*const c_char> = layer_names
-            .iter()
-            .map(|raw_name| raw_name.as_ptr())
-            .collect();
-
-        let mut extension_names = vec![];
-        extension_names.push(ext::debug_utils::NAME.as_ptr());
-
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        {
-            extension_names.push(ash::khr::portability_enumeration::NAME.as_ptr());
-            // Enabling this extension is a requirement when using `VK_KHR_portability_subset`
-            extension_names.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
+pub fn enumerate_required_windowing_extensions(
+    display_handle: WindowingSystem,
+) -> ash::VkResult<&'static [*const c_char]> {
+    let extensions = match display_handle {
+        WindowingSystem::Headless => {
+            const HEADLESS_EXTS: [*const c_char; 2] = [
+                khr::surface::NAME.as_ptr(),
+                ext::headless_surface::NAME.as_ptr(),
+            ];
+            &HEADLESS_EXTS
         }
 
-        let appinfo = vk::ApplicationInfo::default()
-            .application_name(app_name)
-            .application_version(0)
-            .engine_name(app_name)
-            .engine_version(0)
-            .api_version(vk::make_api_version(0, 1, 4, 0));
+        WindowingSystem::Windows => {
+            const WINDOWS_EXTS: [*const c_char; 2] = [
+                khr::surface::NAME.as_ptr(),
+                khr::win32_surface::NAME.as_ptr(),
+            ];
+            &WINDOWS_EXTS
+        }
 
-        let create_flags = if cfg!(any(target_os = "macos", target_os = "ios")) {
-            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-        } else {
-            vk::InstanceCreateFlags::default()
-        };
+        WindowingSystem::Wayland => {
+            const WAYLAND_EXTS: [*const c_char; 2] = [
+                khr::surface::NAME.as_ptr(),
+                khr::wayland_surface::NAME.as_ptr(),
+            ];
+            &WAYLAND_EXTS
+        }
 
-        let create_info = vk::InstanceCreateInfo::default()
-            .application_info(&appinfo)
-            .enabled_layer_names(&layers_names_raw)
-            .enabled_extension_names(&extension_names)
-            .flags(create_flags);
+        WindowingSystem::Xlib => {
+            const XLIB_EXTS: [*const c_char; 2] = [
+                khr::surface::NAME.as_ptr(),
+                khr::xlib_surface::NAME.as_ptr(),
+            ];
+            &XLIB_EXTS
+        }
 
-        let instance: ash::Instance = unsafe {
-            entry
-                .create_instance(&create_info, None)
-                .expect("Instance creation error")
-        };
+        WindowingSystem::Xcb => {
+            const XCB_EXTS: [*const c_char; 2] =
+                [khr::surface::NAME.as_ptr(), khr::xcb_surface::NAME.as_ptr()];
+            &XCB_EXTS
+        }
 
-        let debug_utils_loader = ext::debug_utils::Instance::load(&entry, &instance);
-        let debug_messenger = unsafe { create_debug_messenger(&debug_utils_loader) };
+        // Maybe in a decade
+        //WindowingSystem::Android => {
+        //    const ANDROID_EXTS: [*const c_char; 2] = [
+        //        khr::surface::NAME.as_ptr(),
+        //        khr::android_surface::NAME.as_ptr(),
+        //    ];
+        //    &ANDROID_EXTS
+        //}
+        WindowingSystem::AppKit | WindowingSystem::UiKit => {
+            const METAL_EXTS: [*const c_char; 2] = [
+                khr::surface::NAME.as_ptr(),
+                ext::metal_surface::NAME.as_ptr(),
+            ];
+            &METAL_EXTS
+        }
 
-        let _surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
+        _ => return Err(vk::Result::ERROR_EXTENSION_NOT_PRESENT),
+    };
 
-        Self {
-            entry: ManuallyDrop::new(entry),
-            instance,
+    Ok(extensions)
+}
 
-            debug_utils_loader,
-            debug_messenger,
+impl Instance {
+    pub(crate) fn enumerate_physical_devices(&self) -> Vec<PhysicalDeviceInfo> {
+        unsafe {
+            let pdevices = self
+                .instance
+                .enumerate_physical_devices()
+                .expect("Physical device error");
 
-            _surface_loader,
+            pdevices
+                .into_iter()
+                .enumerate()
+                .map(|(idx, pdevice)| {
+                    let mut properties = Default::default();
+                    self.instance
+                        .get_physical_device_properties2(pdevice, &mut properties);
+
+                    let device_name: String = properties
+                        .properties
+                        .device_name_as_c_str()
+                        .unwrap_or(c"")
+                        .to_string_lossy()
+                        .into_owned();
+
+                    let mut descriptor_heap_feature =
+                        vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default();
+                    let mut shader_untyped_ptrs_feature =
+                        vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::default();
+                    let mut extended_dynamic_state3_feature =
+                        vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT::default();
+                    let mut features = vk::PhysicalDeviceFeatures2::default()
+                        .push(&mut descriptor_heap_feature)
+                        .push(&mut shader_untyped_ptrs_feature)
+                        .push(&mut extended_dynamic_state3_feature);
+                    self.instance
+                        .get_physical_device_features2(pdevice, &mut features);
+
+                    let device_features = DeviceFeatures {
+                        descriptor_heap: descriptor_heap_feature.descriptor_heap != 0
+                            && shader_untyped_ptrs_feature.shader_untyped_pointers != 0,
+                        dynamic_blend_state: extended_dynamic_state3_feature
+                            .extended_dynamic_state3_color_blend_enable
+                            != 0
+                            && extended_dynamic_state3_feature
+                                .extended_dynamic_state3_color_blend_equation
+                                != 0
+                            && extended_dynamic_state3_feature
+                                .extended_dynamic_state3_color_write_mask
+                                != 0,
+                    };
+
+                    PhysicalDeviceInfo {
+                        device_idx: idx,
+                        device_name,
+                        device_features,
+                    }
+                })
+                .collect()
         }
     }
+}
 
-    pub unsafe fn new_with_presentation(raw_display_handle: RawDisplayHandle) -> Self {
-        let entry = ash::Entry::load().expect("Failed to load Vulkan");
-        let app_name = c"Ark Renderer";
+impl Instance {
+    pub fn new() -> Self {
+        Self::new_with_presentation(WindowingSystem::None)
+    }
 
-        let layer_names = [c"VK_LAYER_KHRONOS_validation"];
-        let layers_names_raw: Vec<*const c_char> = layer_names
-            .iter()
-            .map(|raw_name| raw_name.as_ptr())
-            .collect();
+    pub fn new_with_presentation(windowing_system: WindowingSystem) -> Self {
+        let entry = unsafe { ash::Entry::load().expect("Failed to load Vulkan") };
+        let app_name = c"Styro RHI";
 
-        let mut extension_names = ash_window::enumerate_required_extensions(raw_display_handle)
-            .unwrap()
-            .to_vec();
+        let mut extension_names = enumerate_required_windowing_extensions(windowing_system)
+            .map_or(vec![], |slice| slice.to_vec());
         extension_names.push(ext::debug_utils::NAME.as_ptr());
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -132,51 +198,55 @@ impl Instance {
 
         let create_info = vk::InstanceCreateInfo::default()
             .application_info(&appinfo)
-            .enabled_layer_names(&layers_names_raw)
+            //    .enabled_layer_names(&layers_names_raw)
             .enabled_extension_names(&extension_names)
             .flags(create_flags);
 
-        let instance: ash::Instance = entry
-            .create_instance(&create_info, None)
-            .expect("Instance creation error");
+        unsafe {
+            let instance: ash::Instance = entry
+                .create_instance(&create_info, None)
+                .expect("Instance creation error");
 
-        let debug_utils_loader = ext::debug_utils::Instance::load(&entry, &instance);
-        let debug_messenger = create_debug_messenger(&debug_utils_loader);
+            let debug_utils_loader = ext::debug_utils::Instance::load(&entry, &instance);
+            let debug_messenger = create_debug_messenger(&debug_utils_loader);
 
-        let _surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
+            let _surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
 
-        Self {
-            entry: ManuallyDrop::new(entry),
-            instance,
+            Self {
+                entry: ManuallyDrop::new(entry),
+                instance,
 
-            debug_utils_loader,
-            debug_messenger,
+                debug_utils_loader,
+                debug_messenger,
 
-            _surface_loader,
+                _surface_loader,
+            }
         }
     }
 
-    pub unsafe fn create_surface(
+    pub(super) unsafe fn create_surface(
         &self,
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Surface {
-        let surface =
-            ash_window::SurfaceFactory::new(&self.entry, &self.instance, raw_display_handle)
-                .unwrap()
-                .create_surface(raw_window_handle, None)
-                .unwrap();
+        unsafe {
+            let surface =
+                ash_window::SurfaceFactory::new(&self.entry, &self.instance, raw_display_handle)
+                    .unwrap()
+                    .create_surface(raw_window_handle, None)
+                    .unwrap();
 
-        let surface_loader = khr::surface::Instance::load(&self.entry, &self.instance);
+            let surface_loader = khr::surface::Instance::load(&self.entry, &self.instance);
 
-        Surface {
-            inner: surface,
-            surface_loader,
+            Surface {
+                inner: surface,
+                surface_loader,
+            }
         }
     }
 
     // TODO: maybe move device creation to device.rs instead?
-    pub unsafe fn create_device(&self) -> DeviceResult {
+    pub(super) unsafe fn create_device(&self, device_info: &DeviceCreateInfo) -> DeviceResult {
         let pdevices = self
             .instance
             .enumerate_physical_devices()
@@ -191,9 +261,9 @@ impl Instance {
             self.instance
                 .get_physical_device_features2(*pdevice, &mut device_features);
 
-            println!(
-                "Device {pdevice:?}\nProperties:\n{device_properties:#?}\nFeatures:\n{device_features:#?}"
-            );
+            //println!(
+            //    "Device {pdevice:?}\nProperties:\n{device_properties:#?}\nFeatures:\n{device_features:#?}"
+            //);
         }
 
         let (pdevice, graphics_queue, compute_queue, transfer_queue) =

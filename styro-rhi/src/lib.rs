@@ -1,5 +1,6 @@
 /// format is so bloated, it gets its own module
 mod format;
+pub mod instance;
 mod vulkan;
 
 pub use vulkan::command::{CommandBuffer, Pipeline};
@@ -504,7 +505,7 @@ pub trait CommandRHI {
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
-#[repr(u32)]
+#[derive(Debug, Clone, Copy)]
 pub enum WindowingSystem {
     None = 0,
     AppKit = 1,
@@ -513,6 +514,7 @@ pub enum WindowingSystem {
     Xlib = 4,
     Xcb = 5,
     Wayland = 6,
+    Headless = 7,
 }
 
 pub struct WindowSystemData {

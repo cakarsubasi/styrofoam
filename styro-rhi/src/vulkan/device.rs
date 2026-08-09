@@ -14,7 +14,6 @@ use ash::ext;
 //use ash::khr;
 use ash::vk;
 use ash::vk::TaggedStructure as _;
-use raw_window_handle::RawDisplayHandle;
 use vk_mem::Alloc;
 
 use super::command::LayoutTransition;
@@ -26,6 +25,7 @@ use super::instance::DeviceResult;
 use super::instance::Instance;
 use super::swapchain::Swapchain;
 
+use crate::instance::DeviceCreateInfo;
 use crate::*;
 
 #[repr(C)]
@@ -202,13 +202,11 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new() -> Self {
-        todo!()
-    }
-
-    pub fn new_with_presentation(display_handle: RawDisplayHandle) -> Self {
+    pub fn new(create_info: &DeviceCreateInfo) -> Self {
         unsafe {
-            let instance = Instance::new_with_presentation(display_handle);
+            let instance = Instance::new_with_presentation(
+                create_info.presentation.unwrap_or(WindowingSystem::None),
+            );
 
             let DeviceResult {
                 device,
@@ -216,7 +214,7 @@ impl Device {
                 _graphics_queue_index: _,
                 _compute_queue_index: _,
                 _transfer_queue_index: _,
-            } = instance.create_device();
+            } = instance.create_device(create_info);
 
             let mut allocator_create_info =
                 vk_mem::AllocatorCreateInfo::new(&instance.instance, &device, pdevice);
