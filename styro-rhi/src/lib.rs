@@ -505,4 +505,5 @@ pub trait CommandRHI {
     fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr);
 }
 
+pub use instance::*;
 pub use window::*;
