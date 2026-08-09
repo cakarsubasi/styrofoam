@@ -520,7 +520,10 @@ pub struct WindowSystemData {
     pub window_handle: RawWindowHandle,
 }
 
-pub type ColorSpace = ash::vk::ColorSpaceKHR;
+#[derive(Debug, Clone, Copy)]
+pub enum ColorSpace {
+    SrgbNonlinear,
+}
 
 #[derive(Clone, Copy)]
 pub struct SwapchainInfo {

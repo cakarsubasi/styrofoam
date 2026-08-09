@@ -261,7 +261,7 @@ impl Swapchain {
             .surface(surface.inner)
             .image_extent(surface_caps.current_extent)
             .image_format(info.format.into())
-            .image_color_space(info.color_space)
+            .image_color_space(info.color_space.into())
             .image_usage(
                 vk::ImageUsageFlags::TRANSFER_DST
                     | vk::ImageUsageFlags::TRANSFER_SRC

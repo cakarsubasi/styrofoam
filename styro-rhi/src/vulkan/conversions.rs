@@ -231,3 +231,11 @@ impl From<ImageLayout> for vk::ImageLayout {
         }
     }
 }
+
+impl From<ColorSpace> for vk::ColorSpaceKHR {
+    fn from(value: ColorSpace) -> Self {
+        match value {
+            ColorSpace::SrgbNonlinear => vk::ColorSpaceKHR::SRGB_NONLINEAR,
+        }
+    }
+}
