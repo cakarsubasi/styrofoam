@@ -1,4 +1,3 @@
-use ash::vk;
 use core::slice;
 use std::fs::File;
 use styro_rhi::BufferDesc;
@@ -13,7 +12,6 @@ use styro_rhi::Error;
 use styro_rhi::Format;
 use styro_rhi::GpuPtr;
 use styro_rhi::ImageBlitInfo;
-use styro_rhi::ImageCopyInfo;
 use styro_rhi::ImageDesc;
 use styro_rhi::ImageDescriptor;
 use styro_rhi::ImageLayout;
@@ -37,7 +35,7 @@ use styro_rhi::SwapchainInfo;
 use styro_rhi::SwapchainRHI as _;
 use styro_rhi::WindowSystemData;
 use styro_rhi::WindowingSystem;
-use styro_rhi::ash;
+use styro_rhi::instance::DeviceCreateInfo;
 use styro_rhi::read_spv;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
@@ -65,7 +63,14 @@ impl Renderer {
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Self {
-        let mut device_rhi = Device::new_with_presentation(raw_display_handle);
+        let mut device_rhi = Device::new(&DeviceCreateInfo {
+            device_idx: 1,
+            device_features: styro_rhi::instance::DeviceFeatures {
+                descriptor_heap: true,
+                dynamic_blend_state: true,
+            },
+            presentation: Some(WindowingSystem::Windows),
+        });
 
         let graphics_queue =
             device_rhi.create_queue(QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
@@ -79,7 +84,7 @@ impl Renderer {
             &SwapchainInfo {
                 size: 2,
                 format: Format::R8G8B8A8_Srgb,
-                color_space: ColorSpace::SRGB_NONLINEAR,
+                color_space: ColorSpace::SrgbNonlinear,
             },
         );
         let images: Vec<_> = (0..2)
