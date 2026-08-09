@@ -8,7 +8,7 @@ use ash::vk::TaggedStructure as _;
 use raw_window_handle::RawDisplayHandle;
 use raw_window_handle::RawWindowHandle;
 
-use crate::WindowingSystem;
+use crate::WindowSystem;
 use crate::instance::DeviceCreateInfo;
 use crate::instance::DeviceFeatures;
 use crate::instance::PhysicalDeviceInfo;
@@ -37,10 +37,10 @@ pub(super) struct DeviceResult {
 }
 
 pub fn enumerate_required_windowing_extensions(
-    display_handle: WindowingSystem,
+    display_handle: WindowSystem,
 ) -> ash::VkResult<&'static [*const c_char]> {
     let extensions = match display_handle {
-        WindowingSystem::Headless => {
+        WindowSystem::Headless => {
             const HEADLESS_EXTS: [*const c_char; 2] = [
                 khr::surface::NAME.as_ptr(),
                 ext::headless_surface::NAME.as_ptr(),
@@ -48,7 +48,7 @@ pub fn enumerate_required_windowing_extensions(
             &HEADLESS_EXTS
         }
 
-        WindowingSystem::Windows => {
+        WindowSystem::Windows => {
             const WINDOWS_EXTS: [*const c_char; 2] = [
                 khr::surface::NAME.as_ptr(),
                 khr::win32_surface::NAME.as_ptr(),
@@ -56,7 +56,7 @@ pub fn enumerate_required_windowing_extensions(
             &WINDOWS_EXTS
         }
 
-        WindowingSystem::Wayland => {
+        WindowSystem::Wayland => {
             const WAYLAND_EXTS: [*const c_char; 2] = [
                 khr::surface::NAME.as_ptr(),
                 khr::wayland_surface::NAME.as_ptr(),
@@ -64,7 +64,7 @@ pub fn enumerate_required_windowing_extensions(
             &WAYLAND_EXTS
         }
 
-        WindowingSystem::Xlib => {
+        WindowSystem::Xlib => {
             const XLIB_EXTS: [*const c_char; 2] = [
                 khr::surface::NAME.as_ptr(),
                 khr::xlib_surface::NAME.as_ptr(),
@@ -72,7 +72,7 @@ pub fn enumerate_required_windowing_extensions(
             &XLIB_EXTS
         }
 
-        WindowingSystem::Xcb => {
+        WindowSystem::Xcb => {
             const XCB_EXTS: [*const c_char; 2] =
                 [khr::surface::NAME.as_ptr(), khr::xcb_surface::NAME.as_ptr()];
             &XCB_EXTS
@@ -86,7 +86,7 @@ pub fn enumerate_required_windowing_extensions(
         //    ];
         //    &ANDROID_EXTS
         //}
-        WindowingSystem::AppKit | WindowingSystem::UiKit => {
+        WindowSystem::AppKit | WindowSystem::UiKit => {
             const METAL_EXTS: [*const c_char; 2] = [
                 khr::surface::NAME.as_ptr(),
                 ext::metal_surface::NAME.as_ptr(),
@@ -163,10 +163,10 @@ impl Instance {
 
 impl Instance {
     pub fn new() -> Self {
-        Self::new_with_presentation(WindowingSystem::None)
+        Self::new_with_presentation(WindowSystem::None)
     }
 
-    pub fn new_with_presentation(windowing_system: WindowingSystem) -> Self {
+    pub fn new_with_presentation(windowing_system: WindowSystem) -> Self {
         let entry = unsafe { ash::Entry::load().expect("Failed to load Vulkan") };
         let app_name = c"Styro RHI";
 

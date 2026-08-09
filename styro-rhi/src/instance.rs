@@ -1,6 +1,6 @@
 use super::vulkan::instance::Instance;
 
-use crate::{Device, WindowingSystem};
+use crate::{Device, WindowSystem};
 
 #[derive(Debug, Clone)]
 pub struct PhysicalDeviceInfo {
@@ -24,7 +24,7 @@ pub struct DeviceFeatures {
 pub struct DeviceCreateInfo {
     pub device_idx: usize,
     pub device_features: DeviceFeatures,
-    pub presentation: Option<WindowingSystem>,
+    pub presentation: Option<WindowSystem>,
     //pub debug_callback: Option<usize>,
 }
 

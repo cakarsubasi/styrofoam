@@ -205,7 +205,7 @@ impl Device {
     pub fn new(create_info: &DeviceCreateInfo) -> Self {
         unsafe {
             let instance = Instance::new_with_presentation(
-                create_info.presentation.unwrap_or(WindowingSystem::None),
+                create_info.presentation.unwrap_or(WindowSystem::None),
             );
 
             let DeviceResult {
