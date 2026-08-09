@@ -53,6 +53,10 @@ impl Drop for SwapchainHandle {
     }
 }
 
+/// Opaque handle to a swapchain object
+/// 
+/// A swapchain makes it possible to present rendering outputs to a surface. 
+/// See [module level documentation](crate::window) for details.
 pub struct Swapchain {
     // device data
     device: Arc<DeviceHandles>,

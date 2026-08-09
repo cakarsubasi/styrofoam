@@ -567,6 +567,7 @@ impl DeviceRHI for Device {
 
 impl SwapchainDeviceRHI for Device {
     type Swapchain = Swapchain;
+    type Queue = <Self as DeviceRHI>::Queue;
 
     fn create_swapchain(
         &self,
