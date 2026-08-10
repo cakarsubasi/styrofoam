@@ -522,8 +522,32 @@ impl DeviceRHI for Device {
                 .push(&mut fragment_shader),
         ];
 
-        let mut graphics_pipeline_flags = vk::PipelineCreateFlags2CreateInfo::default()
-            .flags(vk::PipelineCreateFlags2::DESCRIPTOR_HEAP_EXT);
+        let mut graphics_pipeline_flags = vk::PipelineCreateFlags2CreateInfo::default().flags(
+            if self.handles.descriptor_heap.is_some() {
+                vk::PipelineCreateFlags2::DESCRIPTOR_HEAP_EXT
+            } else {
+                vk::PipelineCreateFlags2::empty()
+            },
+        );
+
+        let pipeline_layout = unsafe {
+            if self.handles.descriptor_heap.is_some() {
+                vk::PipelineLayout::null()
+            } else {
+                // TODO: future work
+                let set_layouts = [];
+                let push_constant_ranges = [];
+
+                self.device()
+                    .create_pipeline_layout(
+                        &vk::PipelineLayoutCreateInfo::default()
+                            .set_layouts(&set_layouts)
+                            .push_constant_ranges(&push_constant_ranges),
+                        None,
+                    )
+                    .unwrap()
+            }
+        };
 
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .flags(vk::PipelineCreateFlags::empty())
@@ -535,7 +559,7 @@ impl DeviceRHI for Device {
             .multisample_state(&multisample_state)
             .color_blend_state(&color_blend_state)
             .dynamic_state(&dynamic_state)
-            .layout(vk::PipelineLayout::null()) // VK_EXT_descriptor_heap
+            .layout(pipeline_layout)
             .render_pass(vk::RenderPass::null()) // VK_KHR_dynamic_rendering
             .push(&mut rendering_create_info)
             .push(&mut graphics_pipeline_flags);
