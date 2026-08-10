@@ -88,9 +88,9 @@ pub(super) struct DeviceHandles {
     pub allocator: ManuallyDrop<vk_mem::Allocator>,
     // Extensions
     pub debug_utils: ext::debug_utils::Device,
-    pub descriptor_heap: ext::descriptor_heap::Device,
-    pub descriptor_heap_props: DescriptorHeapProps,
-    pub extended_dynamic_state3: ext::extended_dynamic_state3::Device,
+    pub descriptor_heap: Option<ext::descriptor_heap::Device>,
+    pub descriptor_heap_props: Option<DescriptorHeapProps>,
+    pub extended_dynamic_state3: Option<ext::extended_dynamic_state3::Device>,
     // pub device_address_commands: khr::device_address_commands::Device, // Poor support right now
 }
 
@@ -216,6 +216,8 @@ impl Device {
                 _transfer_queue_index: _,
             } = instance.create_device(create_info);
 
+            let features = create_info.device_features;
+
             let mut allocator_create_info =
                 vk_mem::AllocatorCreateInfo::new(&instance.instance, &device, pdevice);
             allocator_create_info.flags = vk_mem::AllocatorCreateFlags::BUFFER_DEVICE_ADDRESS;
@@ -226,11 +228,23 @@ impl Device {
 
             let descriptor_heap_props = instance.get_descriptor_heap_properties(&pdevice);
 
-            let descriptor_heap_loader =
-                ext::descriptor_heap::Device::load(&instance.instance, &device);
+            let descriptor_heap_loader = if features.descriptor_heap {
+                Some(ext::descriptor_heap::Device::load(
+                    &instance.instance,
+                    &device,
+                ))
+            } else {
+                None
+            };
 
-            let extended_dynamic_state3 =
-                ext::extended_dynamic_state3::Device::load(&instance.instance, &device);
+            let extended_dynamic_state3 = if features.dynamic_blend_state {
+                Some(ext::extended_dynamic_state3::Device::load(
+                    &instance.instance,
+                    &device,
+                ))
+            } else {
+                None
+            };
 
             let handles = Arc::new(DeviceHandles {
                 instance,
@@ -239,7 +253,7 @@ impl Device {
                 allocator: ManuallyDrop::new(allocator),
                 debug_utils: debug_utils_loader,
                 descriptor_heap: descriptor_heap_loader,
-                descriptor_heap_props: descriptor_heap_props.unwrap(),
+                descriptor_heap_props: descriptor_heap_props,
                 extended_dynamic_state3,
             });
 
@@ -257,7 +271,11 @@ impl Device {
     }
 
     pub fn get_descriptor_heap_properties(&self) -> DescriptorHeapProps {
-        self.handles.descriptor_heap_props.clone()
+        self.handles
+            .descriptor_heap_props
+            .as_ref()
+            .expect("Descriptor heap feature is not enabled!")
+            .clone()
     }
 
     pub fn set_object_name(&self, obj: GpuPtr, name: &CStr) {
@@ -822,6 +840,8 @@ impl DescriptorHeap {
             ];
 
             descriptor_heap
+                .as_ref()
+                .expect("Descriptor heap feature is not enabled.")
                 .write_sampler_descriptors(&samplers, &descriptor)
                 .unwrap();
         }
@@ -856,6 +876,8 @@ impl DescriptorHeap {
             let descriptor = [vk::HostAddressRangeEXT::default()
                 .address(bytemuck::cast_slice_mut(&mut addr.inner))];
             descriptor_heap
+                .as_ref()
+                .expect("Descriptor heap feature is not enabled.")
                 .write_resource_descriptors(&resource, &descriptor)
                 .unwrap();
         }

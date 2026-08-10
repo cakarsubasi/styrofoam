@@ -78,9 +78,20 @@ pub struct CommandBuffer {
 // Common helpers
 impl CommandBuffer {
     fn push_data(&mut self, data: PushData) {
+        if data.is_empty() {
+            return;
+        }
         unsafe {
-            let descriptor_heap = &self.device.descriptor_heap;
-            let props = &self.device.descriptor_heap_props;
+            let descriptor_heap = self
+                .device
+                .descriptor_heap
+                .as_ref()
+                .expect("Descriptor heap feature is not enabled.");
+            let props = self
+                .device
+                .descriptor_heap_props
+                .as_ref()
+                .expect("Descriptor heap feature is not enabled.");
 
             assert!(
                 props.max_push_data_size >= data.len() as u64,
@@ -472,8 +483,16 @@ impl CommandRHI for CommandBuffer {
 
         let heap = self.heap.read().unwrap();
 
-        let descriptor_heap = &self.device.descriptor_heap;
-        let props = &self.device.descriptor_heap_props;
+        let descriptor_heap = self
+            .device
+            .descriptor_heap
+            .as_ref()
+            .expect("Descriptor heap feature is not enabled.");
+        let props = self
+            .device
+            .descriptor_heap_props
+            .as_ref()
+            .expect("Descriptor heap feature is not enabled.");
 
         if !resource_heap_null {
             let resource_heap_buf = heap.ptr_to_buffer(resource_heap);
@@ -675,7 +694,11 @@ impl CommandRHI for CommandBuffer {
 
     fn set_blend_state(&mut self, state: &BlendInfo) {
         unsafe {
-            let extended_dynamic_state3 = &self.device.extended_dynamic_state3;
+            let extended_dynamic_state3 = self
+                .device
+                .extended_dynamic_state3
+                .as_ref()
+                .expect("Dynamic blend state feature is not enabled");
 
             extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
 
