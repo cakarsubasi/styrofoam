@@ -325,12 +325,12 @@ impl Instance {
             vk::DeviceQueueCreateInfo::default()
                 .queue_family_index(graphics_queue)
                 .queue_priorities(&[0.5]),
-            vk::DeviceQueueCreateInfo::default()
-                .queue_family_index(compute_queue)
-                .queue_priorities(&[0.5]),
-            vk::DeviceQueueCreateInfo::default()
-                .queue_family_index(transfer_queue)
-                .queue_priorities(&[0.5]),
+            //vk::DeviceQueueCreateInfo::default()
+            //    .queue_family_index(compute_queue)
+            //    .queue_priorities(&[0.5]),
+            //vk::DeviceQueueCreateInfo::default()
+            //    .queue_family_index(transfer_queue)
+            //    .queue_priorities(&[0.5]),
         ];
 
         unsafe {
