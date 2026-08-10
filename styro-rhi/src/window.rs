@@ -50,7 +50,11 @@
 //! notably, a surface **must** be live for the lifetime of a swapchain and a surface
 //! can only be associated with a single swapchain at any time.
 
-use std::{ffi::c_void, num::NonZero, ptr::NonNull};
+use std::{
+    ffi::{c_ulong, c_void},
+    num::NonZero,
+    ptr::NonNull,
+};
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
@@ -176,7 +180,7 @@ impl WindowSystemData {
     pub unsafe fn from_xlib(
         display_handle: *mut c_void,
         screen_handle: i32,
-        window_handle: u32,
+        window_handle: c_ulong,
     ) -> Self {
         let display_handle = NonNull::new(display_handle);
 
