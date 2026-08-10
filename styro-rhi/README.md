@@ -6,13 +6,23 @@ Inspired by Sebbi's [No Graphics API](https://www.sebastianaaltonen.com/blog/no-
 
 ### TODO:
 
-- Wrap remaining Vulkan structures.
-- C interface.
-- Proper image copies. (Maybe also VK_EXT_host_image_copy?)
-- More documentation and a sensible safety boundary. Basically, we want to avoid making everything unsafe but the functions we mark as unsafe should have sensible usage preconditions. In addition, catching all incorrect API usage especially on the device side is out of scope.
-- Complete missing parts of the interface. More complete dynamic state management, simplified image layout transitions, correct offset usage and bounds checking for GpuPtr and so on.
+- [x] ~~Wrap remaining Vulkan structures.~~
+- [ ] C interface. 
+- [x] ~~Proper image copies.~~
+- [ ] Documentation
+- Complete missing parts of the interface. 
+  - [x] More complete dynamic state management
+  - [ ] simplified image layout transitions
+  - [ ] correct offset usage and bounds checking for GpuPtr.
+  - [ ] Mesh shaders
 
 To investigate after getting the basics right:
-- Mesh shaders
 - Ray tracing shaders
 - Device generated commands
+
+Shader usage:
+- Install Vulkan SDK
+- Compile shaders like following:
+```bash
+slangc -target spirv -fvk-use-entrypoint-name -capability spvDescriptorHeapEXT -capability SPV_EXT_descriptor_heap -capability SPV_KHR_untyped_pointers  -spirv-resource-heap-stride 32 {PATH_TO_SHADER.slang} -o {PATH_TO_OUTPUT_FILE.spv}
+```
