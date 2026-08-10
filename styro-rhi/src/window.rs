@@ -81,6 +81,20 @@ pub enum WindowSystem {
     Headless = 7,
 }
 
+impl From<RawDisplayHandle> for WindowSystem {
+    fn from(value: RawDisplayHandle) -> Self {
+        match value {
+            RawDisplayHandle::UiKit(_) => Self::UiKit,
+            RawDisplayHandle::AppKit(_) => Self::AppKit,
+            RawDisplayHandle::Xlib(_) => Self::Xlib,
+            RawDisplayHandle::Xcb(_) => Self::Xcb,
+            RawDisplayHandle::Wayland(_) => Self::Wayland,
+            RawDisplayHandle::Windows(_) => Self::Windows,
+            _ => Self::None,
+        }
+    }
+}
+
 /// Opaque type for window system data
 #[derive(Debug, Clone, Copy)]
 pub struct WindowSystemData {
