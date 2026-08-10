@@ -247,51 +247,45 @@ impl Instance {
 
     // TODO: maybe move device creation to device.rs instead?
     pub(super) unsafe fn create_device(&self, device_info: &DeviceCreateInfo) -> DeviceResult {
-        let pdevices = self
-            .instance
-            .enumerate_physical_devices()
-            .expect("Physical device error");
-
-        for pdevice in &pdevices {
-            let mut device_properties = Default::default();
+        let pdevices = unsafe {
             self.instance
-                .get_physical_device_properties2(*pdevice, &mut device_properties);
+                .enumerate_physical_devices()
+                .expect("Physical device error")
+        };
 
-            let mut device_features = vk::PhysicalDeviceFeatures2::default();
-            self.instance
-                .get_physical_device_features2(*pdevice, &mut device_features);
+        // TODO
+        let pdevice = *pdevices.get(device_info.device_idx).unwrap_or_else(|| {
+            panic!(
+                "Device index {} is out of bounds. There are only {} devices available.",
+                device_info.device_idx,
+                pdevices.len()
+            )
+        });
 
-            //println!(
-            //    "Device {pdevice:?}\nProperties:\n{device_properties:#?}\nFeatures:\n{device_features:#?}"
-            //);
-        }
+        let device_features = device_info.device_features;
 
-        let (pdevice, graphics_queue, compute_queue, transfer_queue) =
-            self.choose_physical_device();
+        let (graphics_queue, compute_queue, transfer_queue) = self.choose_physical_device(pdevice);
 
-        // Check if VK_EXT_descriptor_heap is supported
-        let _descriptor_heap_props = self
-            .get_descriptor_heap_properties(&pdevice)
-            .expect("VK_EXT_descriptor_heap is required");
-
-        // TODO: add extensions we want
-        let enabled_extension_names = [
+        let mut enabled_extension_names = vec![
             // I like the theoretical possibility of running headless, but I am never going
             // to run this on an actually headless platform
             khr::swapchain::NAME.as_ptr(),
             khr::synchronization2::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors
-            ext::descriptor_heap::NAME.as_ptr(), // replace descriptor indexing with heaps
-            khr::shader_untyped_pointers::NAME.as_ptr(), // Accessing shader resources without providing types
             //khr::device_address_commands::NAME.as_ptr(), // Replaces commands taking buffers with those taking pointers
             // Probably won't use this because of such narrow support
             // khr::unified_image_layouts::NAME.as_ptr(), // Eliminates need for most layout transitions. Poor support outside Nvidia.
             // ext::mesh_shader::NAME.as_ptr(), // mesh shaders, weeee
-            // Bake fewer things into a PSO
-            ext::extended_dynamic_state3::NAME.as_ptr(),
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             ash::khr::portability_subset::NAME.as_ptr(),
         ];
+        if device_features.descriptor_heap {
+            enabled_extension_names.push(ext::descriptor_heap::NAME.as_ptr()); // replace descriptor indexing with heaps
+            enabled_extension_names.push(khr::shader_untyped_pointers::NAME.as_ptr()) // Accessing shader resources without providing types
+        }
+        if device_features.dynamic_blend_state {
+            enabled_extension_names.push(ext::extended_dynamic_state3::NAME.as_ptr()); // Bake fewer things into the PSO
+        }
 
         let vk10_features = vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true);
         let mut vk11_features =
@@ -306,16 +300,16 @@ impl Instance {
             .dynamic_rendering_local_read(true) // subpasses
             .maintenance5(true); // pass spirv directly rather than creating a ShaderModule
         let mut descriptor_heap_feature = vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default()
-            .descriptor_heap(true)
+            .descriptor_heap(device_features.descriptor_heap)
             .descriptor_heap_capture_replay(false); // Nvidia 595.79 - capture replay is not supported
         let mut shader_untyped_ptrs_feature =
             vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::default()
-                .shader_untyped_pointers(true);
+                .shader_untyped_pointers(device_features.descriptor_heap);
         let mut extended_dynamic_state3_feature =
             vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT::default()
-                .extended_dynamic_state3_color_blend_enable(true)
-                .extended_dynamic_state3_color_blend_equation(true)
-                .extended_dynamic_state3_color_write_mask(true);
+                .extended_dynamic_state3_color_blend_enable(device_features.dynamic_blend_state)
+                .extended_dynamic_state3_color_blend_equation(device_features.dynamic_blend_state)
+                .extended_dynamic_state3_color_write_mask(device_features.dynamic_blend_state);
 
         let mut enabled_features = vk::PhysicalDeviceFeatures2::default()
             .features(vk10_features)
@@ -362,37 +356,16 @@ impl Instance {
 
     fn choose_physical_device(
         &self,
-    ) -> (
-        vk::PhysicalDevice,
-        QueueFamilyIndex,
-        QueueFamilyIndex,
-        QueueFamilyIndex,
-    ) {
+        pdevice: vk::PhysicalDevice,
+    ) -> (QueueFamilyIndex, QueueFamilyIndex, QueueFamilyIndex) {
         unsafe {
-            // First find the best physical device
-            let pdevices = self.instance.enumerate_physical_devices().unwrap();
-            let supported_devices: Vec<_> = pdevices
-                .iter()
-                .map(|&pdevice| {
-                    let properties = self.instance.get_physical_device_properties(pdevice);
-                    (pdevice, properties)
-                })
-                .filter(|(_, properties)| properties.api_version >= vk::API_VERSION_1_4)
-                .collect();
-            let pdevice = supported_devices
-                .iter()
-                .find(|(_, properties)| {
-                    properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
-                })
-                .unwrap_or(supported_devices.first().unwrap())
-                .0;
             // Then figure out the queues
             let queue_family_props = self
                 .instance
                 .get_physical_device_queue_family_properties(pdevice);
 
             // graphics queue should support presentation, the other queues do not matter
-            let _graphics_id = queue_family_props
+            let graphics_id = queue_family_props
                 .iter()
                 .enumerate()
                 .find(|&(_idx, props)| {
@@ -403,7 +376,7 @@ impl Instance {
                 .unwrap()
                 .0 as u32;
 
-            let _compute_id = queue_family_props
+            let compute_id = queue_family_props
                 .iter()
                 .enumerate()
                 .find(|&(_idx, props)| {
@@ -414,7 +387,7 @@ impl Instance {
                 .unwrap()
                 .0 as u32;
 
-            let _transfer_id = queue_family_props
+            let transfer_id = queue_family_props
                 .iter()
                 .enumerate()
                 .find(|&(_idx, props)| {
@@ -425,7 +398,7 @@ impl Instance {
                 .unwrap()
                 .0 as u32;
 
-            (pdevice, _graphics_id, _compute_id, _transfer_id)
+            (graphics_id, compute_id, transfer_id)
         }
     }
 
