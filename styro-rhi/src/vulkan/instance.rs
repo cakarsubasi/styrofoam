@@ -376,29 +376,29 @@ impl Instance {
                 .unwrap()
                 .0 as u32;
 
-            let compute_id = queue_family_props
-                .iter()
-                .enumerate()
-                .find(|&(_idx, props)| {
-                    !props.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                        && props.queue_flags.contains(vk::QueueFlags::COMPUTE)
-                        && props.queue_flags.contains(vk::QueueFlags::TRANSFER)
-                })
-                .unwrap()
-                .0 as u32;
+            //let compute_id = queue_family_props
+            //    .iter()
+            //    .enumerate()
+            //    .find(|&(_idx, props)| {
+            //        !props.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+            //            && props.queue_flags.contains(vk::QueueFlags::COMPUTE)
+            //            && props.queue_flags.contains(vk::QueueFlags::TRANSFER)
+            //    })
+            //    .unwrap()
+            //    .0 as u32;
 
-            let transfer_id = queue_family_props
-                .iter()
-                .enumerate()
-                .find(|&(_idx, props)| {
-                    !props.queue_flags.contains(vk::QueueFlags::GRAPHICS)
-                        && !props.queue_flags.contains(vk::QueueFlags::COMPUTE)
-                        && props.queue_flags.contains(vk::QueueFlags::TRANSFER)
-                })
-                .unwrap()
-                .0 as u32;
+            //let transfer_id = queue_family_props
+            //    .iter()
+            //    .enumerate()
+            //    .find(|&(_idx, props)| {
+            //        !props.queue_flags.contains(vk::QueueFlags::GRAPHICS)
+            //            && !props.queue_flags.contains(vk::QueueFlags::COMPUTE)
+            //            && props.queue_flags.contains(vk::QueueFlags::TRANSFER)
+            //    })
+            //    .unwrap()
+            //    .0 as u32;
 
-            (graphics_id, compute_id, transfer_id)
+            (graphics_id, 0, 0)
         }
     }
 
