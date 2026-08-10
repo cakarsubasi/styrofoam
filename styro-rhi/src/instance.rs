@@ -30,13 +30,13 @@ pub fn enumerate_physical_devices() -> Vec<PhysicalDeviceInfo> {
 /// Physical device features that are supported by an implementation
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceFeatures {
-    /// Enables explicit descriptor management using [DeviceRHI::get_image_descriptor],
-    /// [DeviceRHI::get_sampler_descriptor], and [CommandRHI::bind_descriptor_heap].
+    /// Enables explicit descriptor management using [crate::DeviceRHI::get_image_descriptor],
+    /// [crate::DeviceRHI::get_sampler_descriptor], and [crate::CommandRHI::bind_descriptor_heap].
     /// Required to be able to use images.
     // TODO: provide a push descriptor fallback
     pub descriptor_heap: bool,
-    /// Enables using [CommandRHI::set_blend_state] instead of baking
-    /// blend state inside a [Pipeline].
+    /// Enables using [crate::CommandRHI::set_blend_state] instead of baking
+    /// blend state inside a [crate::Pipeline].
     pub dynamic_blend_state: bool,
 }
 
