@@ -492,6 +492,7 @@ pub trait CommandRHI {
     fn begin_rendering(&mut self, desc: &RenderingInfo);
     fn end_rendering(&mut self);
 
+    fn draw(&mut self, data: PushData, indices: u32, instances: u32);
     fn draw_indexed_instanced(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32);
     fn draw_indexed_instanced_indirect(
         &mut self,

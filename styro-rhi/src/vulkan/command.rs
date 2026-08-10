@@ -839,6 +839,16 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
+    fn draw(&mut self, data: PushData, indices: u32, instances: u32) {
+        unsafe {
+            self.push_data(data);
+
+            self.device
+                .inner
+                .cmd_draw(self.inner, indices, instances, 0, 0);
+        }
+    }
+
     fn draw_indexed_instanced(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32) {
         unsafe {
             self.push_data(data);
