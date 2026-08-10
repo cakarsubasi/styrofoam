@@ -11,7 +11,7 @@ crate-type = ["rlib", "cdylib", "staticlib"]
 ash = { git = "https://github.com/ash-rs/ash.git", rev = "a9a1fb17e98a0cde146caada86200d809306200d" }
 ash-window = { git = "https://github.com/ash-rs/ash.git", rev = "a9a1fb17e98a0cde146caada86200d809306200d" }
 # We also need to modify vk-mem so it uses the latest ash
-vk-mem = { path = "../third-party/vk-mem-rs" }
+vk-mem = { git = "https://github.com/cakarsubasi/vk-mem-rs.git" }
 # bytemuck is too useful not to use
 bytemuck = { version = "1.25.0", features = ["derive"] }
 # ash-window does not re-export this, so we need it
