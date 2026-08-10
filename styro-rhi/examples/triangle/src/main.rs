@@ -6,6 +6,7 @@ use styro_rhi::{
 };
 use winit::{
     application::ApplicationHandler,
+    dpi::{PhysicalSize, Size},
     event::WindowEvent,
     event_loop::EventLoop,
     raw_window_handle::{HasDisplayHandle as _, HasWindowHandle as _},
@@ -35,7 +36,12 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if self.handles.is_none() {
             let window = event_loop
-                .create_window(WindowAttributes::default())
+                .create_window(WindowAttributes::default().with_inner_size(Size::Physical(
+                    PhysicalSize {
+                        width: 800,
+                        height: 600,
+                    },
+                )))
                 .expect("Unable to create window");
             let raw_display_handle = event_loop
                 .display_handle()
