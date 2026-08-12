@@ -245,13 +245,6 @@ impl Swapchain {
     }
 
     pub(crate) fn recreate(&mut self, info: &SwapchainInfo) -> VkResult<()> {
-        // swapchain lost due to surface caps becoming outdated
-        let surface_caps = unsafe {
-            self.surface
-                .surface_loader
-                .get_physical_device_surface_capabilities(self.device.pdevice, self.surface.inner)?
-        };
-
         let swapchain = Self::create_or_recreate_swapchain(
             &self.inner.swapchain_loader,
             Arc::clone(&self.device),
@@ -262,11 +255,7 @@ impl Swapchain {
         )?;
         self.info = *info;
         self.inner = swapchain;
-        self.recreate_resources([
-            surface_caps.current_extent.width,
-            surface_caps.current_extent.height,
-            1,
-        ])
+        self.recreate_resources([info.preferred_extent[0], info.preferred_extent[1], 1])
     }
 
     fn create_or_recreate_swapchain(
