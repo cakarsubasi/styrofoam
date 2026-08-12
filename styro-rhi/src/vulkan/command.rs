@@ -210,6 +210,8 @@ impl CommandBuffer {
             self.device.inner.cmd_set_scissor(self.inner, 0, &scissors);
 
             self.set_depth_stencil_state(&DepthStencilInfo {
+                depth_read: false,
+                depth_write: false,
                 depth_test: CompareOp::Always,
                 depth_bias: 0.0,
                 depth_bias_slope_factor: 0.0,
@@ -648,7 +650,11 @@ impl CommandRHI for CommandBuffer {
                 if depth_test {
                     self.device
                         .inner
-                        .cmd_set_depth_test_enable(self.inner, true);
+                        .cmd_set_depth_test_enable(self.inner, state.depth_read);
+
+                    self.device
+                        .inner
+                        .cmd_set_depth_write_enable(self.inner, state.depth_write);
 
                     self.device
                         .inner

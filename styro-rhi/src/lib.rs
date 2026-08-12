@@ -109,9 +109,11 @@ impl Default for StencilInfo {
 }
 
 /// Depth and stencil operation state
+///
 #[derive(Debug, Clone, Copy)]
 pub struct DepthStencilInfo {
-    //mode: DepthFlags,
+    pub depth_read: bool,
+    pub depth_write: bool,
     /// Compare operation
     pub depth_test: CompareOp,
     pub depth_bias: f32,
