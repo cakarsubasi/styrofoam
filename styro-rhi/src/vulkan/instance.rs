@@ -270,6 +270,7 @@ impl Instance {
             // I like the theoretical possibility of running headless, but I am never going
             // to run this on an actually headless platform
             khr::swapchain::NAME.as_ptr(),
+            khr::swapchain_maintenance1::NAME.as_ptr(),
             khr::synchronization2::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors
             //khr::device_address_commands::NAME.as_ptr(), // Replaces commands taking buffers with those taking pointers
