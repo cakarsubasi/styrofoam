@@ -86,6 +86,7 @@ pub(super) struct DeviceHandles {
     pub instance: Instance,
     pub pdevice: vk::PhysicalDevice,
     pub allocator: ManuallyDrop<vk_mem::Allocator>,
+    pub limits: vk::PhysicalDeviceLimits,
     // Extensions
     pub debug_utils: ext::debug_utils::Device,
     pub descriptor_heap: Option<ext::descriptor_heap::Device>,
@@ -237,6 +238,8 @@ impl Device {
                 None
             };
 
+            let properties = instance.instance.get_physical_device_properties(pdevice);
+
             let extended_dynamic_state3 = if features.dynamic_blend_state {
                 Some(ext::extended_dynamic_state3::Device::load(
                     &instance.instance,
@@ -250,6 +253,7 @@ impl Device {
                 instance,
                 inner: device,
                 pdevice,
+                limits: properties.limits,
                 allocator: ManuallyDrop::new(allocator),
                 debug_utils: debug_utils_loader,
                 descriptor_heap: descriptor_heap_loader,
@@ -616,15 +620,14 @@ impl SwapchainDeviceRHI for Device {
         queue: &crate::Queue,
         window: &crate::WindowSystemData,
         info: &crate::SwapchainInfo,
-    ) -> Self::Swapchain {
+    ) -> Result<Self::Swapchain, Error> {
         unsafe {
             let handles = &self.handles;
             let heap = Arc::clone(&self.heap);
             let present_queue = queue.queue.queue;
             let swapchain =
-                Swapchain::new(Arc::clone(&handles), heap, window, present_queue, info).unwrap();
-
-            swapchain
+                Swapchain::new(Arc::clone(&handles), heap, window, present_queue, info)?;
+            Ok(swapchain)
         }
     }
 }

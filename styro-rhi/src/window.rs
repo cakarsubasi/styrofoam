@@ -248,6 +248,12 @@ pub struct SwapchainInfo {
     pub format: Format,
     /// Swapchain color space
     pub color_space: ColorSpace,
+    /// Preferred extent
+    ///
+    /// Certain platforms such as Wayland determine surface extents based on swapchain extent
+    /// rather than having it be an inherent property of the window. This value should usually
+    /// be set to whatever current extent your window has. In other platforms
+    pub preferred_extent: [u32; 2],
 }
 
 /// Device level functions for Swapchain functionality
@@ -272,7 +278,7 @@ pub trait SwapchainDeviceRHI {
         queue: &Queue,
         window: &WindowSystemData,
         info: &SwapchainInfo,
-    ) -> Self::Swapchain;
+    ) -> Result<Self::Swapchain, Error>;
 }
 
 /// Command buffer level functions for swapchain functionality
@@ -287,6 +293,16 @@ pub trait SwapchainCommandRHI {
 
 /// Swapchain functions
 pub trait SwapchainRHI {
+    /// Recreate swapchain and swapchain resources
+    ///
+    /// The swapchain may become outdated as a result of e.g. a window resize. Under such circumstances,
+    /// [acquire_next_image] and [present] will return [Error::SwapchainOutOfDate]. This function
+    /// should then be called before presenting.
+    ///
+    /// # Valid usage
+    /// - [SwapchainInfo] must be valid.
+    fn recreate_swapchain(&mut self, info: &SwapchainInfo) -> Result<(), Error>;
+
     /// Retrieve the opaque handle of the next available presentable image
     ///
     /// # Valid usage

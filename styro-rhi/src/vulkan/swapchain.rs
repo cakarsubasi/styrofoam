@@ -54,8 +54,8 @@ impl Drop for SwapchainHandle {
 }
 
 /// Opaque handle to a swapchain object
-/// 
-/// A swapchain makes it possible to present rendering outputs to a surface. 
+///
+/// A swapchain makes it possible to present rendering outputs to a surface.
 /// See [module level documentation](crate::window) for details.
 pub struct Swapchain {
     // device data
@@ -65,6 +65,7 @@ pub struct Swapchain {
     inner: SwapchainHandle,
     // surface associated with this swapchain
     surface: Surface,
+    surface_caps: vk::SurfaceCapabilitiesKHR,
     info: SwapchainInfo,
     resources: PresentationResources,
     frame_index: u64,
@@ -92,7 +93,7 @@ impl SwapchainRHI for Swapchain {
             {
                 Ok(res) => res,
                 Err(_) => {
-                    let _ = self.recreate()?;
+                    //let _ = self.recreate()?;
                     return Err(Error::SwapchainOutOfDate);
                 }
             };
@@ -152,10 +153,12 @@ impl SwapchainRHI for Swapchain {
         };
         drop(heap);
 
-        if result.is_err() {
-            self.recreate().inspect_err(|_| {})?; // if not ready, we will just try again next time
-        }
-        Ok(())
+        // Ignore "suboptimal" swapchains
+        result.map(|_| ()).map_err(|err| err.into())
+    }
+
+    fn recreate_swapchain(&mut self, info: &SwapchainInfo) -> Result<(), Error> {
+        self.recreate(info).map_err(|err| err.into())
     }
 }
 
@@ -183,6 +186,33 @@ impl PresentationResources {
     //fn swapchain_size(&self) -> usize {
     //    self.image_handles.len()
     //}
+}
+
+fn valid_extent(
+    surface_caps: &vk::SurfaceCapabilitiesKHR,
+    limits: &vk::PhysicalDeviceLimits,
+    extent: vk::Extent2D,
+) -> Option<vk::Extent2D> {
+    let max_h = u32::min(
+        limits.max_image_dimension2_d,
+        surface_caps.max_image_extent.height,
+    );
+    let max_w = u32::min(
+        limits.max_image_dimension2_d,
+        surface_caps.max_image_extent.width,
+    );
+    let min_h = u32::max(1, surface_caps.min_image_extent.height);
+    let min_w = u32::max(1, surface_caps.min_image_extent.width);
+
+    if max_h >= extent.height
+        && min_h <= extent.height
+        && max_w >= extent.width
+        && min_w <= extent.width
+    {
+        Some(extent)
+    } else {
+        None
+    }
 }
 
 impl Swapchain {
@@ -214,7 +244,7 @@ impl Swapchain {
         }
     }
 
-    pub(crate) fn recreate(&mut self) -> VkResult<()> {
+    pub(crate) fn recreate(&mut self, info: &SwapchainInfo) -> VkResult<()> {
         // swapchain lost due to surface caps becoming outdated
         let surface_caps = unsafe {
             self.surface
@@ -227,11 +257,16 @@ impl Swapchain {
             Arc::clone(&self.device),
             &self.surface,
             self.inner.swapchain,
-            &self.info,
-            surface_caps,
+            &info,
+            self.surface_caps,
         )?;
+        self.info = *info;
         self.inner = swapchain;
-        self.recreate_resources(&surface_caps)
+        self.recreate_resources([
+            surface_caps.current_extent.width,
+            surface_caps.current_extent.height,
+            1,
+        ])
     }
 
     fn create_or_recreate_swapchain(
@@ -244,11 +279,18 @@ impl Swapchain {
     ) -> Result<SwapchainHandle, vk::Result> {
         let surface_loader = &surface.surface_loader;
 
-        if surface_caps.current_extent.height == 0 || surface_caps.current_extent.width == 0 {
-            return Err(vk::Result::NOT_READY);
-        }
+        let preferred_extent = vk::Extent2D {
+            width: info.preferred_extent[0],
+            height: info.preferred_extent[1],
+        };
 
-        //let surface_format = Self::choose_surface_format(&device, surface_loader, &surface)?;
+        let extent = valid_extent(&surface_caps, &device.limits, preferred_extent)
+            .or(valid_extent(
+                &surface_caps,
+                &device.limits,
+                surface_caps.current_extent,
+            ))
+            .ok_or(ash::vk::Result::ERROR_NOT_PERMITTED)?;
 
         let present_modes = unsafe {
             surface_loader
@@ -263,7 +305,7 @@ impl Swapchain {
 
         let swapchain_create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(surface.inner)
-            .image_extent(surface_caps.current_extent)
+            .image_extent(extent)
             .image_format(info.format.into())
             .image_color_space(info.color_space.into())
             .image_usage(
@@ -322,20 +364,22 @@ impl Swapchain {
             surface,
             inner: swapchain,
             resources: PresentationResources::new(),
+            surface_caps,
             frame_index: 0,
             info: *info,
             present_queue,
         };
 
-        swapchain.recreate_resources(&surface_caps)?;
+        swapchain.recreate_resources([
+            surface_caps.current_extent.width,
+            surface_caps.current_extent.height,
+            1,
+        ])?;
 
         Ok(swapchain)
     }
 
-    fn recreate_resources(
-        &mut self,
-        surface_caps: &vk::SurfaceCapabilitiesKHR,
-    ) -> Result<(), vk::Result> {
+    fn recreate_resources(&mut self, dimensions: [u32; 3]) -> Result<(), vk::Result> {
         self.destroy_resources();
         unsafe {
             let device = &self.device;
@@ -364,11 +408,6 @@ impl Swapchain {
                             }),
                         None,
                     )?;
-                    let dimensions = [
-                        surface_caps.current_extent.width,
-                        surface_caps.current_extent.height,
-                        1,
-                    ];
                     Ok(Image {
                         inner: image,
                         view: Some(view),
