@@ -26,38 +26,72 @@ pub enum Error {
     OtherError(i32),
 }
 
+/// Comparison operator for depth, stencil, and sampler operations
+///
+/// Comparison operators are used for:
+/// - Sampler depth compare operation. See [SamplerInfo]
+/// - Stencil test. See [StencilInfo]
+/// - Depth test. See [DepthStencilInfo]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompareOp {
+    /// Comparison evaluates `false`
     Never = 0,
+    /// Comparison evaluates `reference < test`
     Less = 1,
+    /// Comparison evaluates `reference = test`
     Equal = 2,
+    /// Comparison evaluates `reference ≤ test`
     LessOrEqual = 3,
+    /// Comparison evaluates `reference > test`
     Greater = 4,
+    /// Comparison evaluates `reference ≠ test`
     NotEqual = 5,
+    /// Comparison evaluates `reference ≥ test`
     GreaterOrEqual = 6,
+    /// Comparison evaluates `true`
     Always = 7,
 }
 
+/// Stencil operator
+///
+/// Specifies what happens to the stencil when the conditions for `fail_op`, `pass_op`, and `depth_fail_op` are met.
+/// See [StencilInfo].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StencilOp {
+    /// Keeps the current value
     Keep = 0,
+    /// Value is set to `0`
     Zero = 1,
+    /// Value is set to `reference`
     Replace = 2,
+    /// Increments the current value clamping to the largest representable unsigned value
     IncrementAndClamp = 3,
+    /// Decrements the current value clamping to `0`
     DecrementAndClamp = 4,
+    /// Bitwise-inverts the current value
     Invert = 5,
+    /// Increments the current value wrapping around to `0` when the largest unsigned value would be exceeded
     IncrementAndWrap = 6,
+    /// Decrements the current value wrapping around to the largest unsigned value when the value would go below `0`
     DecrementAndWrap = 7,
 }
 
+/// Stencil operation state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StencilInfo {
+    /// Comparison operator used for the stencil test
     pub compare_op: CompareOp,
+    /// Operation to perform on samples that fail the stencil test
     pub fail_op: StencilOp,
+    /// Operation to perform on samples that pass the depth test and stencil test
     pub pass_op: StencilOp,
+    /// Operation to perform on samples that pass the stencil tast but fail the depth test
     pub depth_fail_op: StencilOp,
+    /// reference value used for the comparison
     pub reference: u32,
+    /// The bits participating in the stencil test
     pub read_mask: u32,
+    /// The bits that are updated as a result of the stencil test
     pub write_mask: u32,
 }
 impl Default for StencilInfo {
@@ -74,9 +108,11 @@ impl Default for StencilInfo {
     }
 }
 
+/// Depth and stencil operation state
 #[derive(Debug, Clone, Copy)]
 pub struct DepthStencilInfo {
     //mode: DepthFlags,
+    /// Compare operation
     pub depth_test: CompareOp,
     pub depth_bias: f32,
     pub depth_bias_slope_factor: f32,
