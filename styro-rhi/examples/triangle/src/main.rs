@@ -61,15 +61,21 @@ impl ApplicationHandler for App {
             let queue = device.create_queue(rhi::QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
 
             let swapchain = unsafe {
-                device.create_swapchain(
-                    &queue,
-                    &rhi::WindowSystemData::from_raw_handles(raw_display_handle, raw_window_handle),
-                    &rhi::SwapchainInfo {
-                        size: FRAMES_IN_FLIGHT as u32,
-                        format: rhi::Format::R8G8B8A8_Srgb,
-                        color_space: styro_rhi::ColorSpace::SrgbNonlinear,
-                    },
-                )
+                device
+                    .create_swapchain(
+                        &queue,
+                        &rhi::WindowSystemData::from_raw_handles(
+                            raw_display_handle,
+                            raw_window_handle,
+                        ),
+                        &rhi::SwapchainInfo {
+                            size: FRAMES_IN_FLIGHT as u32,
+                            format: rhi::Format::R8G8B8A8_Srgb,
+                            color_space: styro_rhi::ColorSpace::SrgbNonlinear,
+                            preferred_extent: [800, 600],
+                        },
+                    )
+                    .unwrap()
             };
 
             let semaphore = device.create_semaphore(0);
