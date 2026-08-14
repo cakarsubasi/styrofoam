@@ -288,7 +288,11 @@ impl Instance {
             enabled_extension_names.push(ext::extended_dynamic_state3::NAME.as_ptr()); // Bake fewer things into the PSO
         }
 
-        let vk10_features = vk::PhysicalDeviceFeatures::default().pipeline_statistics_query(true);
+        let vk10_features = vk::PhysicalDeviceFeatures::default()
+            .pipeline_statistics_query(true)
+            .depth_bias_clamp(true)
+            .dual_src_blend(true)
+            .sampler_anisotropy(true);
         let mut vk11_features =
             vk::PhysicalDeviceVulkan11Features::default().shader_draw_parameters(true);
         let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
