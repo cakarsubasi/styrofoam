@@ -63,8 +63,8 @@ impl Renderer {
         raw_display_handle: RawDisplayHandle,
         raw_window_handle: RawWindowHandle,
     ) -> Self {
-        let mut device_rhi = Device::new(&DeviceCreateInfo {
-            device_idx: 1,
+        let mut device = Device::new(&DeviceCreateInfo {
+            device_idx: 0,
             device_features: styro_rhi::instance::DeviceFeatures {
                 descriptor_heap: true,
                 dynamic_blend_state: true,
@@ -72,24 +72,25 @@ impl Renderer {
             presentation: Some(WindowSystem::Windows),
         });
 
-        let graphics_queue =
-            device_rhi.create_queue(QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
+        let graphics_queue = device.create_queue(QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
 
-        let swapchain = device_rhi.create_swapchain(
-            &graphics_queue,
-            &WindowSystemData {
-                display_handle: raw_display_handle,
-                window_handle: raw_window_handle,
-            },
-            &SwapchainInfo {
-                size: 2,
-                format: Format::R8G8B8A8_Srgb,
-                color_space: ColorSpace::SrgbNonlinear,
-            },
-        );
+        let swapchain = device
+            .create_swapchain(
+                &graphics_queue,
+                &unsafe {
+                    WindowSystemData::from_raw_handles(raw_display_handle, raw_window_handle)
+                },
+                &SwapchainInfo {
+                    size: FRAMES_IN_FLIGHT as u32,
+                    format: Format::R8G8B8A8_Srgb,
+                    color_space: ColorSpace::SrgbNonlinear,
+                    preferred_extent: [0, 0],
+                },
+            )
+            .unwrap();
         let images: Vec<_> = (0..2)
             .map(|_| {
-                device_rhi.create_image(&ImageInfo {
+                device.create_image(&ImageInfo {
                     dimensions: [800, 600, 1],
                     format: Format::R8G8B8A8_Unorm,
                     usage: styro_rhi::ImageUsage::Attachment,
@@ -97,11 +98,11 @@ impl Renderer {
                 })
             })
             .collect();
-        let frame_semaphore = device_rhi.create_semaphore(0);
-        let render_data = TextureRenderData::new(&mut device_rhi);
+        let frame_semaphore = device.create_semaphore(0);
+        let render_data = TextureRenderData::new(&mut device);
         //UiDataGpu::new(&mut device_rhi);
         Self {
-            device: device_rhi,
+            device,
             swapchain,
             state: RenderState {
                 frame_index: 1,
