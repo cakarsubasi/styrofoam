@@ -33,10 +33,14 @@ pub struct DeviceFeatures {
     /// Enables explicit descriptor management using [crate::DeviceRHI::get_image_descriptor],
     /// [crate::DeviceRHI::get_sampler_descriptor], and [crate::CommandRHI::bind_descriptor_heap].
     /// Required to be able to use images.
+    ///
+    /// On Vulkan, corresponds to VK_EXT_descriptor_heap and VK_KHR_shader_untyped_pointers
     // TODO: provide a push descriptor fallback
     pub descriptor_heap: bool,
     /// Enables using [crate::CommandRHI::set_blend_state] instead of baking
     /// blend state inside a [crate::Pipeline].
+    ///
+    /// On Vulkan, corresponds to VK_EXT_extended_dynamic_state3
     pub dynamic_blend_state: bool,
 }
 

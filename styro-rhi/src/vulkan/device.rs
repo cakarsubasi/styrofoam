@@ -1059,14 +1059,13 @@ impl Memory {
                 flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            Memory::DeviceOnly => vk_mem::AllocationCreateInfo {
+            Memory::DeviceLocal => vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::AutoPreferDevice,
                 ..Default::default()
             },
             Memory::HostCoherent => vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
                 flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_RANDOM,
-                required_flags: vk::MemoryPropertyFlags::HOST_COHERENT,
                 ..Default::default()
             },
         }
@@ -1104,7 +1103,7 @@ impl Buffer {
                 .allocator
                 .create_buffer(&buffer_info, &allocation_info)?;
 
-            let mapped_ptr = if let Memory::DeviceOnly = desc.memory {
+            let mapped_ptr = if let Memory::DeviceLocal = desc.memory {
                 None
             } else {
                 Some(device.allocator.map_memory(&mut allocation).unwrap())
