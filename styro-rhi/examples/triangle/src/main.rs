@@ -54,6 +54,7 @@ impl ApplicationHandler for App {
                 device_features: rhi::DeviceFeatures {
                     descriptor_heap: false,
                     dynamic_blend_state: true,
+                    ..Default::default()
                 },
                 presentation: Some(raw_display_handle.into()),
             });

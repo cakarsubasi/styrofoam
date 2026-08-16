@@ -32,7 +32,7 @@ pub enum Error {
 /// - Sampler depth compare operation. See [SamplerInfo]
 /// - Stencil test. See [StencilInfo]
 /// - Depth test. See [DepthStencilInfo]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CompareOp {
     /// Comparison evaluates `false`
     Never = 0,
@@ -537,21 +537,21 @@ impl Default for ImageInfo {
 }
 
 /// Texture filtering type for an immutable sampler
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Filter {
     Nearest = 0,
     Linear = 1,
 }
 
 /// Mipmap filtering type for an immutable sampler
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MipmapMode {
     Nearest = 0,
     Linear = 1,
 }
 
 /// Addressing mode for an immutable sampler
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq)]
 pub enum SamplerAddressMode {
     #[default]
     Repeat = 0,
@@ -562,7 +562,7 @@ pub enum SamplerAddressMode {
 }
 
 /// Immutable sampler creation info
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct SamplerInfo {
     /// Magnification filter for lookups
     pub mag_filter: Filter,
@@ -752,6 +752,7 @@ pub trait CommandRHI {
     );
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
+    fn push_descriptors(&mut self, images: &[GpuPtr], samplers: &[SamplerInfo], offset: u32);
 
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
     fn image_barrier(

@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::CStr;
+use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -78,10 +79,101 @@ pub struct ShaderIR<'a> {
     pub entry: &'a CStr,
 }
 
+pub(super) struct PushDescriptorData {
+    graphics_descriptor_set_layout: vk::DescriptorSetLayout,
+    pub graphics_pipeline_layout: vk::PipelineLayout,
+    compute_descriptor_set_layout: vk::DescriptorSetLayout,
+    pub compute_pipeline_layout: vk::PipelineLayout,
+}
+
+impl PushDescriptorData {
+    const BINDING_COUNT: usize = 32;
+
+    fn new(device: &ash::Device) -> Self {
+        let graphics_push_constant_range = vk::PushConstantRange::default()
+            .offset(0)
+            .size(256)
+            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT);
+
+        let compute_push_constant_range = vk::PushConstantRange::default()
+            .offset(0)
+            .size(256)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+
+        let mut graphics_bindings = [vk::DescriptorSetLayoutBinding::default()
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT);
+            Self::BINDING_COUNT];
+
+        let mut compute_bindings = [vk::DescriptorSetLayoutBinding::default()
+            .descriptor_count(1)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE);
+            Self::BINDING_COUNT];
+
+        for i in 0..Self::BINDING_COUNT {
+            graphics_bindings[i].binding = i as u32;
+            compute_bindings[i].binding = i as u32;
+        }
+
+        unsafe {
+            let graphics_descriptor_set_layout = device
+                .create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::default()
+                        .bindings(&graphics_bindings)
+                        .flags(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR),
+                    None,
+                )
+                .unwrap();
+
+            let graphics_pipeline_layout = device
+                .create_pipeline_layout(
+                    &vk::PipelineLayoutCreateInfo::default()
+                        .push_constant_ranges(&[graphics_push_constant_range])
+                        .set_layouts(&[graphics_descriptor_set_layout]),
+                    None,
+                )
+                .unwrap();
+
+            let compute_descriptor_set_layout = device
+                .create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::default()
+                        .bindings(&compute_bindings)
+                        .flags(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR),
+                    None,
+                )
+                .unwrap();
+
+            let compute_pipeline_layout = device
+                .create_pipeline_layout(
+                    &vk::PipelineLayoutCreateInfo::default()
+                        .push_constant_ranges(&[compute_push_constant_range])
+                        .set_layouts(&[compute_descriptor_set_layout]),
+                    None,
+                )
+                .unwrap();
+
+            Self {
+                graphics_pipeline_layout,
+                graphics_descriptor_set_layout,
+                compute_pipeline_layout,
+                compute_descriptor_set_layout,
+            }
+        }
+    }
+
+    fn destroy(&mut self, device: &ash::Device) {
+        unsafe {
+            device.destroy_pipeline_layout(self.graphics_pipeline_layout, None);
+            device.destroy_pipeline_layout(self.compute_pipeline_layout, None);
+            device.destroy_descriptor_set_layout(self.graphics_descriptor_set_layout, None);
+            device.destroy_descriptor_set_layout(self.compute_descriptor_set_layout, None);
+        }
+    }
+}
+
 pub(super) struct DeviceHandles {
-    // Surface needs to be dropped before the instance, meaning if I move the surface out,
-    // the instance needs to be behind a shared pointer so the device itself cannot drop it before the surface
-    //pub surface: Surface,
     pub inner: ash::Device,
     pub instance: Instance,
     pub pdevice: vk::PhysicalDevice,
@@ -93,6 +185,7 @@ pub(super) struct DeviceHandles {
     pub descriptor_heap_props: Option<DescriptorHeapProps>,
     pub extended_dynamic_state3: Option<ext::extended_dynamic_state3::Device>,
     // pub device_address_commands: khr::device_address_commands::Device, // Poor support right now
+    pub push_descriptor: Option<PushDescriptorData>,
 }
 
 impl DeviceHandles {
@@ -111,6 +204,11 @@ impl DeviceHandles {
 impl Drop for DeviceHandles {
     fn drop(&mut self) {
         unsafe {
+            // Pipelines have an Arc to DeviceHandles so this is fine
+            if let Some(pd) = &mut self.push_descriptor {
+                pd.destroy(&self.inner);
+            }
+            // Must drop the allocator before the device
             ManuallyDrop::drop(&mut self.allocator);
             self.inner.destroy_device(None);
         }
@@ -249,6 +347,12 @@ impl Device {
                 None
             };
 
+            let push_descriptor = if features.push_descriptor {
+                Some(PushDescriptorData::new(&device))
+            } else {
+                None
+            };
+
             let handles = Arc::new(DeviceHandles {
                 instance,
                 inner: device,
@@ -259,6 +363,7 @@ impl Device {
                 descriptor_heap: descriptor_heap_loader,
                 descriptor_heap_props: descriptor_heap_props,
                 extended_dynamic_state3,
+                push_descriptor: push_descriptor,
             });
 
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();
@@ -534,23 +639,12 @@ impl DeviceRHI for Device {
             },
         );
 
-        let pipeline_layout = unsafe {
-            if self.handles.descriptor_heap.is_some() {
-                vk::PipelineLayout::null()
-            } else {
-                // TODO: future work
-                let set_layouts = [];
-                let push_constant_ranges = [];
-
-                self.device()
-                    .create_pipeline_layout(
-                        &vk::PipelineLayoutCreateInfo::default()
-                            .set_layouts(&set_layouts)
-                            .push_constant_ranges(&push_constant_ranges),
-                        None,
-                    )
-                    .unwrap()
-            }
+        let pipeline_layout = if self.handles.descriptor_heap.is_some() {
+            vk::PipelineLayout::null()
+        } else if let Some(pd) = &self.handles.push_descriptor {
+            pd.graphics_pipeline_layout
+        } else {
+            vk::PipelineLayout::null()
         };
 
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
@@ -807,10 +901,78 @@ pub(super) enum HeapOwnedResource {
     Image(Image),
 }
 
+fn quantize(num: f32, min: f32, max: f32, bits: u32) -> u64 {
+    assert!(max > min);
+    assert!(bits > 0 && bits < 63);
+
+    let num = num.clamp(min, max);
+
+    let max_int = (1u64 << bits) - 1;
+    let t = (num - min) / (max - min);
+
+    (t as f64 * max_int as f64).round() as u64
+}
+
+impl Hash for SamplerInfo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.mag_filter.hash(state);
+        self.min_filter.hash(state);
+        self.mipmap_mode.hash(state);
+        self.address_mode.hash(state);
+        let anisotropy = quantize(self.anisotropy, 1.0, 16.0, 32);
+        anisotropy.hash(state);
+        // Are these good values? Who knows!
+        let lod_bias = quantize(self.lod_bias, -1e6, 16.0, 32);
+        lod_bias.hash(state);
+        let lod_range_lo = quantize(self.lod_range[0], -1e6, 1e6, 32);
+        let lod_range_hi = quantize(self.lod_range[1], -1e6, 1e6, 32);
+        lod_range_lo.hash(state);
+        lod_range_hi.hash(state);
+        self.compare_op.hash(state);
+    }
+}
+
+impl Eq for SamplerInfo {}
+
+impl SamplerInfo {
+    fn to_vk(&self) -> vk::SamplerCreateInfo<'_> {
+        let anisotropy_enable = self.anisotropy > 1.0;
+        let max_anisotropy = if anisotropy_enable {
+            self.anisotropy
+        } else {
+            0.0
+        };
+        let compare_enable = self.compare_op.is_some();
+        let compare_op = if let Some(compare_op) = self.compare_op {
+            compare_op
+        } else {
+            CompareOp::Never // doesn't matter
+        };
+        vk::SamplerCreateInfo::default()
+            //.flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
+            .mag_filter(self.mag_filter.into())
+            .min_filter(self.min_filter.into())
+            .mipmap_mode(self.mipmap_mode.into())
+            .address_mode_u(self.address_mode[0].into())
+            .address_mode_v(self.address_mode[1].into())
+            .address_mode_w(self.address_mode[2].into())
+            .anisotropy_enable(anisotropy_enable)
+            .max_anisotropy(max_anisotropy)
+            .mip_lod_bias(self.lod_bias)
+            .min_lod(self.lod_range[0])
+            .max_lod(self.lod_range[1])
+            .compare_enable(compare_enable)
+            .compare_op(compare_op.into())
+            .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
+            .unnormalized_coordinates(false)
+    }
+}
+
 pub(super) struct DescriptorHeap {
     handle_counter: AtomicU64,
     allocations: HashMap<u64, HeapOwnedResource>,
     device: Arc<DeviceHandles>,
+    sampler_cache: RwLock<HashMap<SamplerInfo, vk::Sampler>>,
 }
 
 unsafe impl Send for DescriptorHeap {}
@@ -822,7 +984,34 @@ impl DescriptorHeap {
             handle_counter: AtomicU64::new(1),
             device,
             allocations: HashMap::new(),
+            sampler_cache: RwLock::new(HashMap::new()),
         })
+    }
+
+    /// For use with VK_KHR_push_descriptor. Take &self and use separate locking just in case. Cache samplers
+    /// since they are immutable and can be reused. They should also be relatively cheap to have and we can
+    /// drop them all at once. Probably don't care enough about this path to use LRU or pruning strategies.
+    pub(super) fn get_or_create_sampler(&self, info: &SamplerInfo) -> vk::Sampler {
+        let lock = self.sampler_cache.read().unwrap();
+
+        if let Some(sampler) = lock.get(info) {
+            *sampler
+        } else {
+            drop(lock);
+            let mut lock = self.sampler_cache.write().unwrap();
+
+            unsafe {
+                let sampler = self
+                    .device
+                    .inner
+                    .create_sampler(&info.to_vk(), None)
+                    .unwrap();
+
+                lock.insert(*info, sampler);
+
+                sampler
+            }
+        }
     }
 
     fn write_sampler_descriptor(&self, desc: &SamplerInfo, addr: &mut SamplerDescriptor) {
@@ -833,38 +1022,7 @@ impl DescriptorHeap {
             let descriptor = [vk::HostAddressRangeEXT::default()
                 .address(bytemuck::cast_slice_mut(&mut addr.inner))];
 
-            let anisotropy_enable = desc.anisotropy > 1.0;
-            let max_anisotropy = if anisotropy_enable {
-                desc.anisotropy
-            } else {
-                0.0
-            };
-            let compare_enable = desc.compare_op.is_some();
-            let compare_op = if let Some(compare_op) = desc.compare_op {
-                compare_op
-            } else {
-                CompareOp::Never // doesn't matter
-            };
-
-            let samplers = [
-                vk::SamplerCreateInfo::default()
-                    //.flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
-                    .mag_filter(desc.mag_filter.into())
-                    .min_filter(desc.min_filter.into())
-                    .mipmap_mode(desc.mipmap_mode.into())
-                    .address_mode_u(desc.address_mode[0].into())
-                    .address_mode_v(desc.address_mode[1].into())
-                    .address_mode_w(desc.address_mode[2].into())
-                    .anisotropy_enable(anisotropy_enable)
-                    .max_anisotropy(max_anisotropy)
-                    .mip_lod_bias(desc.lod_bias)
-                    .min_lod(desc.lod_range[0])
-                    .max_lod(desc.lod_range[1])
-                    .compare_enable(compare_enable)
-                    .compare_op(compare_op.into())
-                    .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
-                    .unnormalized_coordinates(false), // don't support
-            ];
+            let samplers = [desc.to_vk()];
 
             descriptor_heap
                 .as_ref()

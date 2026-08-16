@@ -111,7 +111,7 @@ impl Instance {
             pdevices
                 .into_iter()
                 .enumerate()
-                .map(|(idx, pdevice)| {
+                .flat_map(|(idx, pdevice)| {
                     let mut properties = Default::default();
                     self.instance
                         .get_physical_device_properties2(pdevice, &mut properties);
@@ -136,6 +136,20 @@ impl Instance {
                     self.instance
                         .get_physical_device_features2(pdevice, &mut features);
 
+                    let extensions = self
+                        .instance
+                        .enumerate_device_extension_properties(pdevice)
+                        .ok()?;
+
+                    let push_descriptor = extensions
+                        .iter()
+                        .find(|&extension| {
+                            extension
+                                .extension_name_as_c_str()
+                                .is_ok_and(|name| name == khr::push_descriptor::NAME)
+                        })
+                        .is_some();
+
                     let device_features = DeviceFeatures {
                         descriptor_heap: descriptor_heap_feature.descriptor_heap != 0
                             && shader_untyped_ptrs_feature.shader_untyped_pointers != 0,
@@ -148,13 +162,14 @@ impl Instance {
                             && extended_dynamic_state3_feature
                                 .extended_dynamic_state3_color_write_mask
                                 != 0,
+                        push_descriptor: push_descriptor,
                     };
 
-                    PhysicalDeviceInfo {
+                    Some(PhysicalDeviceInfo {
                         device_idx: idx,
                         device_name,
                         device_features,
-                    }
+                    })
                 })
                 .collect()
         }
@@ -173,6 +188,7 @@ impl Instance {
         let mut extension_names = enumerate_required_windowing_extensions(windowing_system)
             .map_or(vec![], |slice| slice.to_vec());
         extension_names.push(ext::debug_utils::NAME.as_ptr());
+        extension_names.push(khr::surface_maintenance1::NAME.as_ptr());
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         {
@@ -272,6 +288,9 @@ impl Instance {
             khr::swapchain::NAME.as_ptr(),
             khr::swapchain_maintenance1::NAME.as_ptr(),
             khr::synchronization2::NAME.as_ptr(),
+            khr::dynamic_rendering_local_read::NAME.as_ptr(),
+            khr::push_descriptor::NAME.as_ptr(),
+            khr::maintenance5::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors
             //khr::device_address_commands::NAME.as_ptr(), // Replaces commands taking buffers with those taking pointers
             // Probably won't use this because of such narrow support
@@ -301,9 +320,11 @@ impl Instance {
         let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
-        let mut vk14_features = vk::PhysicalDeviceVulkan14Features::default()
-            .dynamic_rendering_local_read(true) // subpasses
-            .maintenance5(true); // pass spirv directly rather than creating a ShaderModule
+        //let mut vk14_features = vk::PhysicalDeviceVulkan14Features::default()
+        //    .dynamic_rendering_local_read(true) // subpasses
+        //    .maintenance5(true); // pass spirv directly rather than creating a ShaderModule
+        let mut maintenance5_features =
+            vk::PhysicalDeviceMaintenance5Features::default().maintenance5(true);
         let mut descriptor_heap_feature = vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default()
             .descriptor_heap(device_features.descriptor_heap)
             .descriptor_heap_capture_replay(false); // Nvidia 595.79 - capture replay is not supported
@@ -315,16 +336,21 @@ impl Instance {
                 .extended_dynamic_state3_color_blend_enable(device_features.dynamic_blend_state)
                 .extended_dynamic_state3_color_blend_equation(device_features.dynamic_blend_state)
                 .extended_dynamic_state3_color_write_mask(device_features.dynamic_blend_state);
+        let mut dynamic_rendering_local_read_feature =
+            vk::PhysicalDeviceDynamicRenderingLocalReadFeatures::default()
+                .dynamic_rendering_local_read(true);
 
         let mut enabled_features = vk::PhysicalDeviceFeatures2::default()
             .features(vk10_features)
             .push(&mut vk11_features)
             .push(&mut vk12_features)
             .push(&mut vk13_features)
-            .push(&mut vk14_features)
+            .push(&mut maintenance5_features)
+            //.push(&mut vk14_features)
             .push(&mut descriptor_heap_feature)
             .push(&mut shader_untyped_ptrs_feature)
-            .push(&mut extended_dynamic_state3_feature);
+            .push(&mut extended_dynamic_state3_feature)
+            .push(&mut dynamic_rendering_local_read_feature);
 
         let queue_create_infos = [
             vk::DeviceQueueCreateInfo::default()
