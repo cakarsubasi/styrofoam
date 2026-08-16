@@ -776,33 +776,29 @@ impl CommandRHI for CommandBuffer {
 
     fn set_blend_state(&mut self, state: &BlendInfo) {
         unsafe {
-            let extended_dynamic_state3 = self
-                .device
-                .extended_dynamic_state3
-                .as_ref()
-                .expect("Dynamic blend state feature is not enabled");
+            if let Some(extended_dynamic_state3) = &self.device.extended_dynamic_state3 {
+                extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
 
-            extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
+                let color_blend_equation = vk::ColorBlendEquationEXT::default()
+                    .src_color_blend_factor(state.src_color_factor.into())
+                    .dst_color_blend_factor(state.dst_color_factor.into())
+                    .color_blend_op(state.color_op.into())
+                    .src_alpha_blend_factor(state.src_alpha_factor.into())
+                    .dst_alpha_blend_factor(state.dst_alpha_factor.into())
+                    .alpha_blend_op(state.alpha_op.into());
 
-            let color_blend_equation = vk::ColorBlendEquationEXT::default()
-                .src_color_blend_factor(state.src_color_factor.into())
-                .dst_color_blend_factor(state.dst_color_factor.into())
-                .color_blend_op(state.color_op.into())
-                .src_alpha_blend_factor(state.src_alpha_factor.into())
-                .dst_alpha_blend_factor(state.dst_alpha_factor.into())
-                .alpha_blend_op(state.alpha_op.into());
+                extended_dynamic_state3.cmd_set_color_blend_equation(
+                    self.inner,
+                    0,
+                    &[color_blend_equation],
+                );
 
-            extended_dynamic_state3.cmd_set_color_blend_equation(
-                self.inner,
-                0,
-                &[color_blend_equation],
-            );
-
-            extended_dynamic_state3.cmd_set_color_write_mask(
-                self.inner,
-                0,
-                &[vk::ColorComponentFlags::RGBA],
-            );
+                extended_dynamic_state3.cmd_set_color_write_mask(
+                    self.inner,
+                    0,
+                    &[vk::ColorComponentFlags::RGBA],
+                );
+            }
         }
     }
 
