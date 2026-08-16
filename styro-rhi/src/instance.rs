@@ -32,10 +32,8 @@ pub fn enumerate_physical_devices() -> Vec<PhysicalDeviceInfo> {
 pub struct DeviceFeatures {
     /// Enables explicit descriptor management using [crate::DeviceRHI::get_image_descriptor],
     /// [crate::DeviceRHI::get_sampler_descriptor], and [crate::CommandRHI::bind_descriptor_heap].
-    /// Required to be able to use images.
     ///
     /// On Vulkan, corresponds to VK_EXT_descriptor_heap and VK_KHR_shader_untyped_pointers
-    // TODO: provide a push descriptor fallback
     pub descriptor_heap: bool,
     /// Enable "vanilla bindless" using [crate::CommandRHI::push_descriptors]. This option is simpler
     /// and more widely supported than `descriptor_heap` but is limited to 32 combined image samplers
