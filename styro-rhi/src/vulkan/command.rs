@@ -82,27 +82,45 @@ impl CommandBuffer {
             return;
         }
         unsafe {
-            let descriptor_heap = self
-                .device
-                .descriptor_heap
-                .as_ref()
-                .expect("Descriptor heap feature is not enabled.");
-            let props = self
-                .device
-                .descriptor_heap_props
-                .as_ref()
-                .expect("Descriptor heap feature is not enabled.");
+            match (&self.device.descriptor_heap, &self.device.push_descriptor) {
+                (None, None) => unreachable!(
+                    "If neither are enabled, push descriptors should still be set with an empty descriptor layout"
+                ),
+                (None, Some(pd)) => {
+                    let (layout, stage_flags) = if self.render_pass_state.is_some() {
+                        (
+                            pd.graphics_pipeline_layout,
+                            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                        )
+                    } else {
+                        (pd.compute_pipeline_layout, vk::ShaderStageFlags::COMPUTE)
+                    };
 
-            assert!(
-                props.max_push_data_size >= data.len() as u64,
-                "Push data too large"
-            );
-            // Calling cmd_push_data with a zero length is invalid
-            if data.len() > 0 {
-                let push_data_info = vk::PushDataInfoEXT::default()
-                    .data(vk::HostAddressRangeConstEXT::default().address(data));
+                    self.device
+                        .inner
+                        .cmd_push_constants(self.inner, layout, stage_flags, 0, data);
+                }
+                (Some(descriptor_heap), None) => {
+                    let props = self
+                        .device
+                        .descriptor_heap_props
+                        .as_ref()
+                        .expect("Descriptor heap feature is not enabled.");
 
-                descriptor_heap.cmd_push_data(self.inner, &push_data_info);
+                    assert!(
+                        props.max_push_data_size >= data.len() as u64,
+                        "Push data too large"
+                    );
+                    // Calling cmd_push_data with a zero length is invalid
+                    let push_data_info = vk::PushDataInfoEXT::default()
+                        .data(vk::HostAddressRangeConstEXT::default().address(data));
+
+                    descriptor_heap.cmd_push_data(self.inner, &push_data_info);
+                }
+                (Some(_), Some(_)) => {
+                    // I really don't care enough to support this case right now
+                    panic!();
+                }
             }
         }
     }

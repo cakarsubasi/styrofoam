@@ -89,7 +89,15 @@ pub(super) struct PushDescriptorData {
 impl PushDescriptorData {
     const BINDING_COUNT: usize = 32;
 
+    fn new_empty(device: &ash::Device) -> Self {
+        Self::from_size::<0>(device)
+    }
+
     fn new(device: &ash::Device) -> Self {
+        Self::from_size::<{ Self::BINDING_COUNT }>(device)
+    }
+
+    fn from_size<const BINDING_SIZE: usize>(device: &ash::Device) -> Self {
         let graphics_push_constant_range = vk::PushConstantRange::default()
             .offset(0)
             .size(256)
@@ -104,15 +112,15 @@ impl PushDescriptorData {
             .descriptor_count(1)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT);
-            Self::BINDING_COUNT];
+            BINDING_SIZE];
 
         let mut compute_bindings = [vk::DescriptorSetLayoutBinding::default()
             .descriptor_count(1)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .stage_flags(vk::ShaderStageFlags::COMPUTE);
-            Self::BINDING_COUNT];
+            BINDING_SIZE];
 
-        for i in 0..Self::BINDING_COUNT {
+        for i in 0..BINDING_SIZE {
             graphics_bindings[i].binding = i as u32;
             compute_bindings[i].binding = i as u32;
         }
@@ -349,6 +357,8 @@ impl Device {
 
             let push_descriptor = if features.push_descriptor {
                 Some(PushDescriptorData::new(&device))
+            } else if !features.descriptor_heap {
+                Some(PushDescriptorData::new_empty(&device))
             } else {
                 None
             };
