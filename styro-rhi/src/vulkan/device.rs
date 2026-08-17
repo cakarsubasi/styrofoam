@@ -508,7 +508,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR) -> Self::Pipeline {
+    unsafe fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR) -> Self::Pipeline {
         let mut compute_shader =
             vk::ShaderModuleCreateInfo::default().code(bytemuck::cast_slice(compute_ir.bytes));
 
@@ -537,7 +537,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn create_graphics_pipeline(
+    unsafe fn create_graphics_pipeline(
         &mut self,
         vertex_ir: &ShaderIR,
         fragment_ir: &ShaderIR,
@@ -691,7 +691,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn create_meshlet_pipeline(
+    unsafe fn create_meshlet_pipeline(
         &mut self,
         task_ir: Option<&ShaderIR>,
         meshlet_ir: &ShaderIR,

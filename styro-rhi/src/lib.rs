@@ -831,14 +831,29 @@ pub trait DeviceRHI {
     fn create_semaphore(&mut self, initial_value: u64) -> Self::Semaphore;
     fn wait_semaphores(&self, semaphores: &[Self::Semaphore], values: &[u64]);
 
-    fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR) -> Self::Pipeline;
-    fn create_graphics_pipeline(
+    /// Create a compute pipeline
+    ///
+    /// # Safety
+    /// - Parsing user input is inherently unsafe. `compute_ir.bytes` must be valid SPIR-V.
+    unsafe fn create_compute_pipeline(&mut self, compute_ir: &ShaderIR) -> Self::Pipeline;
+
+    /// Create a graphics pipeline
+    ///
+    /// # Safety
+    /// - Parsing user input is inherently unsafe. `vertex_ir.bytes`, and `fragment_ir.bytes` must be valid SPIR-V.
+    unsafe fn create_graphics_pipeline(
         &mut self,
         vertex_ir: &ShaderIR,
         fragment_ir: &ShaderIR,
         description: &RasterDescription,
     ) -> Self::Pipeline;
-    fn create_meshlet_pipeline(
+
+    /// Create a meshlet pipeline
+    ///
+    /// # Safety
+    /// - Parsing user input is inherently unsafe. `task_ir.bytes`, `meshlet_ir.bytes`, and `fragment_ir.bytes` must be
+    /// valid SPIR-V.
+    unsafe fn create_meshlet_pipeline(
         &mut self,
         task_ir: Option<&ShaderIR>,
         meshlet_ir: &ShaderIR,
