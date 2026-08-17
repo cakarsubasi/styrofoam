@@ -693,11 +693,163 @@ impl DeviceRHI for Device {
 
     fn create_meshlet_pipeline(
         &mut self,
-        _meshlet_ir: &ShaderIR,
-        _fragment_ir: &ShaderIR,
-        _description: &RasterDescription,
+        task_ir: Option<&ShaderIR>,
+        meshlet_ir: &ShaderIR,
+        fragment_ir: &ShaderIR,
+        description: &RasterDescription,
     ) -> Self::Pipeline {
-        todo!()
+        let dynamic_states = [
+            vk::DynamicState::VIEWPORT,
+            vk::DynamicState::SCISSOR,
+            // depth state is always dynamic
+            vk::DynamicState::DEPTH_WRITE_ENABLE,
+            vk::DynamicState::DEPTH_TEST_ENABLE,
+            vk::DynamicState::DEPTH_BIAS_ENABLE,
+            vk::DynamicState::DEPTH_BIAS,
+            vk::DynamicState::DEPTH_COMPARE_OP,
+            // blend state depends on input arguments
+            vk::DynamicState::COLOR_BLEND_ENABLE_EXT,
+            vk::DynamicState::COLOR_BLEND_EQUATION_EXT,
+            vk::DynamicState::COLOR_WRITE_MASK_EXT,
+        ];
+        let dynamic_states = if description.blend_state.is_none() {
+            dynamic_states.as_slice()
+        } else {
+            &dynamic_states[0..7]
+        };
+
+        let dynamic_state =
+            vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
+
+        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::default()
+            .topology(description.topology.into());
+
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default()
+            .vertex_attribute_descriptions(&[])
+            .vertex_binding_descriptions(&[]);
+
+        let color_formats: Vec<_> = description
+            .color_formats
+            .iter()
+            .map(|&format| format.into())
+            .collect();
+
+        let mut rendering_create_info = vk::PipelineRenderingCreateInfo::default()
+            .color_attachment_formats(&color_formats)
+            .depth_attachment_format(description.depth_format.into())
+            .stencil_attachment_format(description.stencil_format.into());
+
+        let (cull_mode, front_face) = description.cull.to_vk();
+        let rasterization_state = vk::PipelineRasterizationStateCreateInfo::default()
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .cull_mode(cull_mode)
+            .front_face(front_face)
+            .line_width(1.0);
+
+        let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
+            .rasterization_samples(vk::SampleCountFlags::from_raw(description.samples as u32))
+            .sample_shading_enable(false)
+            .alpha_to_coverage_enable(description.alpha_to_coverage)
+            .alpha_to_one_enable(false);
+
+        let color_blend_attachments = if let Some(blend) = description.blend_state {
+            [vk::PipelineColorBlendAttachmentState::default()
+                .color_blend_op(blend.color_op.into())
+                .src_color_blend_factor(blend.src_color_factor.into())
+                .dst_color_blend_factor(blend.dst_color_factor.into())
+                .alpha_blend_op(blend.alpha_op.into())
+                .src_alpha_blend_factor(blend.src_alpha_factor.into())
+                .dst_alpha_blend_factor(blend.dst_alpha_factor.into())]
+        } else {
+            [vk::PipelineColorBlendAttachmentState::default()]
+        };
+
+        let color_blend_state = if let Some(_) = description.blend_state {
+            vk::PipelineColorBlendStateCreateInfo::default()
+                .logic_op_enable(true)
+                .logic_op(vk::LogicOp::COPY)
+                .attachments(&color_blend_attachments)
+        } else {
+            vk::PipelineColorBlendStateCreateInfo::default()
+        };
+
+        let viewport_state = vk::PipelineViewportStateCreateInfo::default()
+            .scissor_count(1)
+            .viewport_count(1);
+
+        let mut task_shader = vk::ShaderModuleCreateInfo::default()
+            .code(task_ir.map_or(&[], |task_ir| bytemuck::cast_slice(task_ir.bytes)));
+        let mut meshlet_shader =
+            vk::ShaderModuleCreateInfo::default().code(bytemuck::cast_slice(meshlet_ir.bytes));
+        let mut fragment_shader =
+            vk::ShaderModuleCreateInfo::default().code(bytemuck::cast_slice(fragment_ir.bytes));
+
+        let pipeline_stages = [
+            vk::PipelineShaderStageCreateInfo::default()
+                .stage(vk::ShaderStageFlags::TASK_EXT)
+                .name(&task_ir.map_or(c"", |task_ir| task_ir.entry))
+                .push(&mut task_shader),
+            vk::PipelineShaderStageCreateInfo::default()
+                .stage(vk::ShaderStageFlags::MESH_EXT)
+                .name(&meshlet_ir.entry)
+                .push(&mut meshlet_shader),
+            vk::PipelineShaderStageCreateInfo::default()
+                .stage(vk::ShaderStageFlags::FRAGMENT)
+                .name(&fragment_ir.entry)
+                .push(&mut fragment_shader),
+        ];
+
+        let mut graphics_pipeline_flags = vk::PipelineCreateFlags2CreateInfo::default().flags(
+            if self.handles.descriptor_heap.is_some() {
+                vk::PipelineCreateFlags2::DESCRIPTOR_HEAP_EXT
+            } else {
+                vk::PipelineCreateFlags2::empty()
+            },
+        );
+
+        let pipeline_layout = if self.handles.descriptor_heap.is_some() {
+            vk::PipelineLayout::null()
+        } else if let Some(pd) = &self.handles.push_descriptor {
+            pd.graphics_pipeline_layout
+        } else {
+            vk::PipelineLayout::null()
+        };
+
+        let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
+            .flags(vk::PipelineCreateFlags::empty())
+            .stages(if task_ir.is_some() {
+                &pipeline_stages
+            } else {
+                &pipeline_stages[1..]
+            })
+            .vertex_input_state(&vertex_input_state)
+            .input_assembly_state(&input_assembly_state)
+            .viewport_state(&viewport_state)
+            .rasterization_state(&rasterization_state)
+            .multisample_state(&multisample_state)
+            .color_blend_state(&color_blend_state)
+            .dynamic_state(&dynamic_state)
+            .layout(pipeline_layout)
+            .render_pass(vk::RenderPass::null()) // VK_KHR_dynamic_rendering
+            .push(&mut rendering_create_info)
+            .push(&mut graphics_pipeline_flags);
+        unsafe {
+            let pipelines = self
+                .device()
+                .create_graphics_pipelines(
+                    vk::PipelineCache::null(),
+                    &[graphics_pipeline_create_info],
+                    None,
+                )
+                .map_err(|(_, res)| res)
+                .unwrap();
+            Pipeline {
+                device: Arc::clone(&self.handles),
+                inner: pipelines[0],
+                ty: PipelineType::Graphics,
+            }
+        }
     }
 
     fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor {

@@ -663,6 +663,7 @@ pub trait DeviceRHI {
     ) -> Self::Pipeline;
     fn create_meshlet_pipeline(
         &mut self,
+        task_ir: Option<&ShaderIR>,
         meshlet_ir: &ShaderIR,
         fragment_ir: &ShaderIR,
         description: &RasterDescription,
