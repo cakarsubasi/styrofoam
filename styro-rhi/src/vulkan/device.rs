@@ -452,7 +452,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn destroy_ptr(&mut self, ptr: Self::GpuPtr) {
+    unsafe fn destroy_ptr(&mut self, ptr: Self::GpuPtr) {
         self.heap.write().unwrap().free(ptr);
     }
 

@@ -539,29 +539,73 @@ impl Default for ImageInfo {
 /// Texture filtering type for an immutable sampler
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Filter {
+    /// Nearest filtering
+    ///
+    /// A single value is chosen from the nearest texel
     Nearest = 0,
+    /// Linear filtering
+    ///
+    /// Linear interpolate 8 (3D), 4 (2D), or 2 (1D) texel values
     Linear = 1,
 }
 
 /// Mipmap filtering type for an immutable sampler
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum MipmapMode {
+    /// Nearest filtering
+    ///
+    /// A single value is chosen from the nearest texel
     Nearest = 0,
+    /// Linear filtering
+    ///
+    /// Linear interpolate 8 (3D), 4 (2D), or 2 (1D) texel values
     Linear = 1,
 }
 
 /// Addressing mode for an immutable sampler
+///
+/// Determines what wrapping operations will be used when sampling outside the image bounds
 #[derive(Debug, Clone, Copy, Default, Hash, PartialEq, Eq)]
 pub enum SamplerAddressMode {
+    /// Image will repeat
+    ///
+    /// `i = i mod size`
     #[default]
     Repeat = 0,
+    /// Image will mirror and repeat
+    ///
+    /// `i = (size - 1) - mirror((i mod (2 * size)) - size)` where `mirror(n) = if n ≥ 0 then n else - (1 + n)`
     MirroredRepeat = 1,
+    /// Image will clamp to the edge value
+    ///
+    /// `i = clamp(i, 0, size - 1)`
     ClampToEdge = 2,
+    /// Image will clamp to the border value
+    ///
+    /// `i = clamp(i, -1, size)`
     ClampToBorder = 3,
+    /// Image will mirror clamp to the edge
+    ///
+    /// `i = clamp(mirror(i), 0, size - 1)`
     MirrorClampToEdge = 4,
 }
 
 /// Immutable sampler creation info
+///
+/// There is no direct access to sampler objects, instead they are created alongside descriptors. When using
+/// descriptor heaps, an immutable sampler descriptor can be created with [DeviceRHI::get_sampler_descriptor].
+/// This can then be copied to a buffer created using [BufferUsage::DescriptorHeap] and then accessed with
+/// an index from within a shader.
+///
+/// ```slang
+/// let texture = Sampler2D.Handle(uint2(texture_id, sampler_id));
+/// let color = texture.Sample(texture_uv);
+/// ```
+///
+/// # Valid usage
+/// - `anisotropy` should be between 0 and 16
+/// - `lod_bias` should be less than 15
+/// - `lod_range[0]` should be less than or equal to `lod_range[1]`
 #[derive(Clone, Copy, PartialEq)]
 pub struct SamplerInfo {
     /// Magnification filter for lookups
@@ -601,24 +645,36 @@ impl Default for SamplerInfo {
 
 /// Implementation defined data for an image descriptor
 ///
-/// See [DeviceRHI::get_image_descriptor]
+/// See [DeviceRHI::get_image_descriptor].
 #[repr(C, align(32))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ImageDescriptor {
+    /// Raw data for an image descriptor
+    ///
+    /// You probably should not touch this, but it is valid to copy out and copy back in.
     pub inner: [u64; 4],
 }
 
 /// Implementation defined data for an immutable sampler descriptor
 ///
-/// See [DeviceRHI::get_sampler_descriptor]
+/// See [DeviceRHI::get_sampler_descriptor].
 #[repr(C, align(32))]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SamplerDescriptor {
+    /// Raw data for an immutable sampler descriptor
+    ///
+    /// You probably should not touch this, but it is valid to copy out and copy back in.
     pub inner: [u64; 4],
 }
 
 type UVec3 = [u32; 3];
 
+/// Queue type
+///
+/// TODO: Multiple queue families are not unreasonable to support, but I need to conditionally make
+/// everything `VK_SHARING_MODE_CONCURRENT` and slightly change device creation so you can query for multiple queues
+/// and things are only made `VK_SHARING_MODE_CONCURRENT` when this is needed. I will almost certainly never expose
+/// queue ownership transfers.
 pub enum QueueType {
     Graphics, // Graphics, Compute, and Copy
               // Multiple queues require handling queue ownership, so there is no point
@@ -627,21 +683,142 @@ pub enum QueueType {
               //Copy,     // Copy only
 }
 
+/// Device level functionality
+///
+///
 pub trait DeviceRHI {
+    /// Pipeline state object
+    ///
+    /// See [DeviceRHI::create_graphics_pipeline], [DeviceRHI::create_compute_pipeline], [DeviceRHI::create_meshlet_pipeline],
+    /// and [crate::Pipeline].
     type Pipeline;
+
+    /// Semaphore for device-host and device-device synchronization across multiple submissions
+    ///
+    /// See [DeviceRHI::create_semaphore] and [crate::Semaphore].
     type Semaphore;
+
+    /// A submission queue
+    ///
+    /// See [DeviceRHI::create_queue] and [crate::Queue].
     type Queue: QueueRHI;
+
+    /// A GPU resource handle
+    ///
+    /// See [crate::GpuPtr].
     type GpuPtr;
 
+    /// Create a buffer
+    ///
+    /// Creates a buffer with the correct alignment and returns a handle. The handle can be freed with a
+    /// call to [DeviceRHI::destroy_ptr]. For buffers visible from the host ([Memory::HostVisible] or
+    /// [Memory::HostCoherent]), a host pointer can be acquired using [DeviceRHI::buffer_host_addr]. The device
+    /// address can be acquired using [DeviceRHI::buffer_device_addr] which can be passed to the device with
+    /// push data (see draw and dispatch commands in [CommandRHI]) or by writing the address to another buffer.
+    ///
+    /// All created buffers are owned by the device and are destroyed when the device is dropped. However, you should
+    /// still manually free buffers that you no longer need.
+    ///
+    /// # Valid usage
+    /// - `details.size` must be greater than 0
+    /// - `details.size` must not be greater than the amount of available memory (maybe I should make this function fallible)
     fn create_buffer(&mut self, details: &BufferInfo) -> Self::GpuPtr;
+
+    /// Create an image
+    ///
+    /// Creates an image with the specified details of sufficient size and returns a handle. The handle can be
+    /// freed with a call to [DeviceRHI::destroy_ptr]. When created, an image is in an undefined layout and can be
+    /// transitioned to a different layout by calling [CommandRHI::image_barrier].
+    ///
+    /// Unlike buffers, images cannot be accessed directly and can only be
+    /// accessed through a descriptor. A descriptor can be acquired by passing an image that is not in the undefined
+    /// layout to [DeviceRHI::get_image_descriptor]. The acquired descriptor data can be written to a buffer created
+    /// with [BufferUsage::DescriptorHeap], see [CommandRHI::bind_descriptor_heap] for more details. Once written,
+    /// the image can be accessed within a shader by creating an opaque handle using its index within the descriptor heap.
+    ///
+    /// ```slang
+    /// let texture = Sampler2D.Handle(uint2(texture_id, sampler_id));
+    /// let color = texture.Sample(texture_uv);
+    /// ```
+    ///
+    /// All images created are owned by the device and are destroyed when the device is dropped. However, you should still
+    /// manually free images that you no longer need.
+    ///
+    /// # Valid usage
+    /// - TODO
+    ///
+    /// # Notes
+    /// It is probably a design mistake to have
+    ///
     fn create_image(&mut self, details: &ImageInfo) -> Self::GpuPtr;
 
+    /// Acquire a host mapped pointer to buffer
+    ///
+    /// The pointer can be used to copy data from the host for device use or to read data back from the device.
+    ///
+    /// # Valid usage
+    /// - `ptr` must be a buffer
+    /// - `ptr.size` and `ptr.offset` must be in bounds for the buffer
+    /// - `ptr` must not be created with `Memory::DeviceLocal`
+    /// - `ptr` must not be the null pointer
+    ///
+    /// # Safety
+    /// This function is safe, however the following considerations need to be taken when using the host pointer:
+    /// - Accesses must be within `[ptr..ptr.byte_add(size)]`
+    /// - Pointer must not be accessed after [DeviceRHI::destroy_ptr] is called on the original allocation.
+    /// - If memory type is `Memory::HostVisible`, the buffer may not have host memory backing and any read, even
+    /// implicit, can have unexpected results. Only doing strict sequential writes is sufficient for correctness.
+    /// - Accesses to the pointer must not race. A data race is defined as two simultaneous unsynchronized accesses
+    /// where at least one is a write. Using a [Semaphore] where only one party has access to the memory region for
+    /// a given value of the semaphore is sufficient. As is spatial partitioning.
+    /// - Having a live [reference] is considered an implicit read.
     fn buffer_host_addr(&self, ptr: Self::GpuPtr) -> *mut u8;
+
+    /// Acquire the device address of a buffer
+    ///
+    /// The pointer can be passed to the device using push data or by being written into another buffer. It can
+    /// then be dereferenced from a shader to access the contained data.
+    ///
+    /// # Valid usage
+    /// - `ptr` must be a buffer
+    /// - `ptr.size` and `ptr.offset` must be in bounds for the buffer
+    /// - `ptr` must not be the null pointer
+    ///
+    /// # Safety
+    /// This function is safe, however the following considerations need to be taken when using the device pointer:
+    /// - Accesses must be within `[*ptr..*(ptr+size)]`.
+    /// - Pointer must not be accessed after [DeviceRHI::destroy_ptr] is called on the original allocation.
+    /// - Accesses to the pointer must not race. A data race is defined as two simultaneous unsynchronized accesses
+    /// where at least one is a write. Using a [Semaphore] where only one party has access to the memory region for
+    /// a given value of the semaphore is sufficient. As is spatial partitioning.
+    /// - Having a live [reference] is considered an implicit read.
     fn buffer_device_addr(&self, ptr: Self::GpuPtr) -> u64;
 
-    fn destroy_ptr(&mut self, ptr: Self::GpuPtr);
+    /// Deallocate a buffer or an image
+    ///
+    /// # Valid usage
+    /// - `ptr` must have `offset` 0 and the same `size` that it had when created using [DeviceRHI::create_buffer]
+    /// or [DeviceRHI::create_image]
+    /// - `ptr` must be live
+    /// - `ptr` must not be in use
+    ///
+    /// # Safety
+    /// - `ptr` must not be in use when this function is called. Using a timeline semaphore to wait on all
+    /// computations on the memory to complete is sufficient to ensure this.
+    unsafe fn destroy_ptr(&mut self, ptr: Self::GpuPtr);
 
+    /// Get bytes for an image descriptor
+    ///
+    /// # Valid usage
+    /// - `image` must be an image
+    /// - `image` must be live
+    /// - `image` must not be in the undefined layout
     fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor;
+
+    /// Get bytes for an immutable sampler descriptor
+    ///
+    /// # Valid usage
+    /// -`desc` must be a valid [SamplerInfo] structure
     fn get_sampler_descriptor(&self, desc: &SamplerInfo) -> SamplerDescriptor;
 
     fn create_queue(
@@ -753,6 +930,10 @@ pub trait CommandRHI {
     );
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
+
+    /// Push descriptor updates into the command buffer
+    ///
+    ///
     fn push_descriptors(&mut self, images: &[GpuPtr], samplers: &[SamplerInfo], offset: u32);
 
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
