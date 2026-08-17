@@ -8,7 +8,8 @@ mod vulkan;
 pub mod window;
 
 pub use vulkan::command::{CommandBuffer, Pipeline};
-pub use vulkan::device::{Device, GpuPtr, Queue, Semaphore, ShaderIR};
+pub use vulkan::device::{Device, GpuPtr, Queue, ShaderIR};
+pub use vulkan::semaphore::Semaphore;
 pub use vulkan::swapchain::Swapchain;
 
 pub use format::Format;

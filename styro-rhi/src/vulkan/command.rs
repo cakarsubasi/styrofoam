@@ -7,7 +7,7 @@ use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
 use super::device::GpuPtr;
 use super::device::ImageData;
-use super::device::Semaphore;
+use super::semaphore::Semaphore;
 use crate::*;
 
 pub(crate) enum PipelineType {
