@@ -33,24 +33,24 @@ pub struct DeviceFeatures {
     /// Enables explicit descriptor management using [crate::DeviceRHI::get_image_descriptor],
     /// [crate::DeviceRHI::get_sampler_descriptor], and [crate::CommandRHI::bind_descriptor_heap].
     ///
-    /// On Vulkan, corresponds to VK_EXT_descriptor_heap and VK_KHR_shader_untyped_pointers
+    /// On Vulkan, corresponds to `VK_EXT_descriptor_heap` and `VK_KHR_shader_untyped_pointers`.
     pub descriptor_heap: bool,
     /// Enable "vanilla bindless" using [crate::CommandRHI::push_descriptors]. This option is simpler
     /// and more widely supported than `descriptor_heap` but is limited to 32 combined image samplers
     /// per shader.
     ///
-    /// On Vulkan, corresponds to VK_KHR_push_descriptor.
+    /// On Vulkan, corresponds to `VK_KHR_push_descriptor`.
     pub push_descriptor: bool,
     /// Enables using [crate::CommandRHI::set_blend_state] instead of baking
     /// blend state inside a [crate::Pipeline].
     ///
-    /// On Vulkan, corresponds to VK_EXT_extended_dynamic_state3
+    /// On Vulkan, corresponds to `VK_EXT_extended_dynamic_state3`.
     pub dynamic_blend_state: bool,
     /// Mesh shaders. Mesh shader pipelines can be created using [crate::DeviceRHI::create_meshlet_pipeline].
     /// These can then be bound and drawn using [crate::CommandRHI::draw_meshlets] and
     /// [crate::CommandRHI::draw_meshlets_indirect].
     ///
-    /// On Vulkan, corresponds to `VK_EXT_mesh_shader`
+    /// On Vulkan, corresponds to `VK_EXT_mesh_shader`.
     pub mesh_shader: bool,
 }
 

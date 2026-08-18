@@ -296,8 +296,8 @@ pub trait SwapchainRHI {
     /// Recreate swapchain and swapchain resources
     ///
     /// The swapchain may become outdated as a result of e.g. a window resize. Under such circumstances,
-    /// [acquire_next_image] and [present] will return [Error::SwapchainOutOfDate]. This function
-    /// should then be called before presenting.
+    /// [SwapchainRHI::acquire_next_image] and [SwapchainRHI::present] will return [Error::SwapchainOutOfDate].
+    /// This function should then be called before presenting.
     ///
     /// # Valid usage
     /// - [SwapchainInfo] must be valid.
