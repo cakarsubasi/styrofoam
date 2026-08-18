@@ -149,6 +149,7 @@ pub(super) struct DeviceHandles {
     pub extended_dynamic_state3: Option<ext::extended_dynamic_state3::Device>,
     // pub device_address_commands: khr::device_address_commands::Device, // Poor support right now
     pub push_descriptor: Option<PushDescriptorData>,
+    pub mesh_shader: Option<ext::mesh_shader::Device>,
 }
 
 impl DeviceHandles {
@@ -318,6 +319,12 @@ impl Device {
                 None
             };
 
+            let mesh_shader = if false {
+                Some(ext::mesh_shader::Device::load(&instance.instance, &device))
+            } else {
+                None
+            };
+
             let handles = Arc::new(DeviceHandles {
                 instance,
                 inner: device,
@@ -328,7 +335,8 @@ impl Device {
                 descriptor_heap: descriptor_heap_loader,
                 descriptor_heap_props: descriptor_heap_props,
                 extended_dynamic_state3,
-                push_descriptor: push_descriptor,
+                push_descriptor,
+                mesh_shader,
             });
 
             let descriptor_heap = DescriptorHeap::new(Arc::clone(&handles)).unwrap();

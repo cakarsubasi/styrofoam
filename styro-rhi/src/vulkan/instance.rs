@@ -150,6 +150,15 @@ impl Instance {
                         })
                         .is_some();
 
+                    let mesh_shader = extensions
+                        .iter()
+                        .find(|&extension| {
+                            extension
+                                .extension_name_as_c_str()
+                                .is_ok_and(|name| name == ext::mesh_shader::NAME)
+                        })
+                        .is_some();
+
                     let device_features = DeviceFeatures {
                         descriptor_heap: descriptor_heap_feature.descriptor_heap != 0
                             && shader_untyped_ptrs_feature.shader_untyped_pointers != 0,
@@ -162,7 +171,8 @@ impl Instance {
                             && extended_dynamic_state3_feature
                                 .extended_dynamic_state3_color_write_mask
                                 != 0,
-                        push_descriptor: push_descriptor,
+                        push_descriptor,
+                        mesh_shader,
                     };
 
                     Some(PhysicalDeviceInfo {
@@ -305,6 +315,9 @@ impl Instance {
         }
         if device_features.dynamic_blend_state {
             enabled_extension_names.push(ext::extended_dynamic_state3::NAME.as_ptr()); // Bake fewer things into the PSO
+        }
+        if device_features.mesh_shader {
+            enabled_extension_names.push(ext::mesh_shader::NAME.as_ptr());
         }
 
         let vk10_features = vk::PhysicalDeviceFeatures::default()

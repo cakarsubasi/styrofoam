@@ -46,6 +46,12 @@ pub struct DeviceFeatures {
     ///
     /// On Vulkan, corresponds to VK_EXT_extended_dynamic_state3
     pub dynamic_blend_state: bool,
+    /// Mesh shaders. Mesh shader pipelines can be created using [crate::DeviceRHI::create_meshlet_pipeline].
+    /// These can then be bound and drawn using [crate::CommandRHI::draw_meshlets] and
+    /// [crate::CommandRHI::draw_meshlets_indirect].
+    ///
+    /// On Vulkan, corresponds to `VK_EXT_mesh_shader`
+    pub mesh_shader: bool,
 }
 
 /// Parameters of a newly created device

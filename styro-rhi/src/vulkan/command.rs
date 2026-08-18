@@ -987,8 +987,14 @@ impl CommandRHI for CommandBuffer {
         todo!()
     }
 
-    fn draw_meshlets(&mut self, _data: PushData, _dimension: UVec3) {
-        todo!()
+    fn draw_meshlets(&mut self, data: PushData, dimension: UVec3) {
+        self.push_data(&data);
+
+        let mesh = self.device.mesh_shader.as_ref().expect("Mesh shader is not enabled.");
+
+        unsafe {
+            mesh.cmd_draw_mesh_tasks(self.inner, dimension[0], dimension[1], dimension[2]);
+        }
     }
 
     fn draw_meshlets_indirect(&mut self, _data: PushData, _dim_data: Self::GpuPtr) {
