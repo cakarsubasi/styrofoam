@@ -980,25 +980,82 @@ impl CommandRHI for CommandBuffer {
 
     fn draw_indexed_instanced_indirect(
         &mut self,
-        _data: PushData,
-        _indices: Self::GpuPtr,
-        _indirect: Self::GpuPtr,
+        data: PushData,
+        indices: Self::GpuPtr,
+        indirect: Self::GpuPtr,
     ) {
-        todo!()
+        unsafe {
+            self.push_data(data);
+
+            let heap = self.heap.read().unwrap();
+            let index_buffer = heap.ptr_to_buffer(indices);
+            let index_type = vk::IndexType::UINT32;
+
+            let index_offset = indices.offset;
+            let index_size = indices.size;
+
+            self.device.inner.cmd_bind_index_buffer2(
+                self.inner,
+                index_buffer.inner,
+                index_offset as u64,
+                index_size as u64,
+                index_type,
+            );
+
+            let indirect_buffer = heap.ptr_to_buffer(indirect);
+
+            let indirect_offset = indirect.offset;
+            let _indirect_size = indirect.size;
+
+            self.device.inner.cmd_draw_indexed_indirect(
+                self.inner,
+                indirect_buffer.inner,
+                indirect_offset as u64,
+                1,
+                0,
+            );
+        }
     }
 
     fn draw_meshlets(&mut self, data: PushData, dimension: UVec3) {
         self.push_data(&data);
 
-        let mesh = self.device.mesh_shader.as_ref().expect("Mesh shader is not enabled.");
+        let mesh = self
+            .device
+            .mesh_shader
+            .as_ref()
+            .expect("Mesh shader is not enabled.");
 
         unsafe {
             mesh.cmd_draw_mesh_tasks(self.inner, dimension[0], dimension[1], dimension[2]);
         }
     }
 
-    fn draw_meshlets_indirect(&mut self, _data: PushData, _dim_data: Self::GpuPtr) {
-        todo!()
+    fn draw_meshlets_indirect(&mut self, data: PushData, indirect: Self::GpuPtr) {
+        unsafe {
+            self.push_data(data);
+
+            let mesh = self
+                .device
+                .mesh_shader
+                .as_ref()
+                .expect("Mesh shader is not enabled.");
+
+            let heap = self.heap.read().unwrap();
+
+            let indirect_buffer = heap.ptr_to_buffer(indirect);
+
+            let indirect_offset = indirect.offset;
+            let _indirect_size = indirect.size;
+
+            mesh.cmd_draw_mesh_tasks_indirect(
+                self.inner,
+                indirect_buffer.inner,
+                indirect_offset as u64,
+                1,
+                0,
+            );
+        }
     }
 }
 
