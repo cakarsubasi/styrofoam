@@ -52,7 +52,6 @@ impl ApplicationHandler for App {
             let mut device = rhi::create_device(&rhi::DeviceCreateInfo {
                 device_idx: 0,
                 device_features: rhi::DeviceFeatures {
-                    descriptor_heap: false,
                     dynamic_blend_state: true,
                     ..Default::default()
                 },
@@ -83,21 +82,23 @@ impl ApplicationHandler for App {
 
             let mut spv = File::open("triangle.spv").unwrap();
             let text = rhi::read_spv(&mut spv).unwrap();
-            let pipeline = device.create_graphics_pipeline(
-                &rhi::ShaderIR {
-                    bytes: &text,
-                    entry: c"triangle_vert",
-                },
-                &rhi::ShaderIR {
-                    bytes: &text,
-                    entry: c"triangle_frag",
-                },
-                &rhi::RasterDescription {
-                    color_formats: &[rhi::Format::R8G8B8A8_Srgb],
-                    cull: rhi::Cull::NONE,
-                    ..Default::default()
-                },
-            );
+            let pipeline = unsafe {
+                device.create_graphics_pipeline(
+                    &rhi::ShaderIR {
+                        bytes: &text,
+                        entry: c"triangle_vert",
+                    },
+                    &rhi::ShaderIR {
+                        bytes: &text,
+                        entry: c"triangle_frag",
+                    },
+                    &rhi::RasterDescription {
+                        color_formats: &[rhi::Format::R8G8B8A8_Srgb],
+                        cull: rhi::Cull::NONE,
+                        ..Default::default()
+                    },
+                )
+            };
 
             self.handles = Some(Handles {
                 _window: window,
@@ -152,7 +153,7 @@ impl ApplicationHandler for App {
 
                     command_buffer.signal_after(rhi::Stage::BottomOfPipe, &semaphore, *frame_index);
 
-                    queue.submit(&[command_buffer]).unwrap();
+                    unsafe { queue.submit(&[command_buffer]).unwrap() };
                     swapchain.present(swapchain_image).unwrap();
                     *frame_index += 1;
                 }

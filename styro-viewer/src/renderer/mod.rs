@@ -68,6 +68,7 @@ impl Renderer {
             device_features: styro_rhi::instance::DeviceFeatures {
                 descriptor_heap: true,
                 dynamic_blend_state: true,
+                ..Default::default()
             },
             presentation: Some(WindowSystem::Windows),
         });
@@ -166,7 +167,7 @@ impl Renderer {
             *next_frame,
         );
 
-        self.graphics_queue.submit(&[command_buffer])?;
+        unsafe { self.graphics_queue.submit(&[command_buffer])? };
         self.swapchain.present(swapchain_image)?;
         *next_frame += 1;
         Ok(())
@@ -196,7 +197,8 @@ impl TriangleRenderData {
             ..Default::default()
         };
 
-        let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
+        let pipeline =
+            unsafe { device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description) };
         let buffer_desc = BufferInfo {
             memory: Memory::HostVisible,
             size: 4 * 6,
@@ -252,7 +254,8 @@ impl TextureRenderData {
             ..Default::default()
         };
 
-        let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
+        let pipeline =
+            unsafe { device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description) };
         pipeline.set_object_name(c"bindlessTextureExamplePipeline");
         let buffer_desc = BufferInfo {
             memory: Memory::HostVisible,
@@ -381,11 +384,13 @@ impl TextureRenderData {
     }
 
     fn free(&self, device: &mut Device) {
-        device.destroy_ptr(self.resource_heap);
-        device.destroy_ptr(self.sampler_heap);
-        device.destroy_ptr(self.texture);
-        device.destroy_ptr(self.staging_buffer);
-        device.destroy_ptr(self.indices);
+        unsafe {
+            device.destroy_ptr(self.resource_heap);
+            device.destroy_ptr(self.sampler_heap);
+            device.destroy_ptr(self.texture);
+            device.destroy_ptr(self.staging_buffer);
+            device.destroy_ptr(self.indices);
+        }
     }
 }
 
@@ -435,7 +440,8 @@ impl UiDataGpu {
             ..Default::default()
         };
 
-        let pipeline = device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description);
+        let pipeline =
+            unsafe { device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description) };
         Self {
             vertex_buffer: GpuPtr::null(),
             index_buffer: GpuPtr::null(),
