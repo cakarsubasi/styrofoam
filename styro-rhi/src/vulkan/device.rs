@@ -998,7 +998,7 @@ impl QueueRHI for Queue {
         }
     }
 
-    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
+    unsafe fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error> {
         for cb in command_buffers {
             if let Some(swapchain_image) = cb.presentation {
                 unsafe {

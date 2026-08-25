@@ -686,7 +686,6 @@ pub enum QueueType {
 
 /// Device level functionality
 ///
-///
 pub trait DeviceRHI {
     /// Pipeline state object
     ///
@@ -822,6 +821,15 @@ pub trait DeviceRHI {
     /// -`desc` must be a valid [SamplerInfo] structure
     fn get_sampler_descriptor(&self, desc: &SamplerInfo) -> SamplerDescriptor;
 
+    /// Acquire a submission queue and allocate command buffers
+    ///
+    /// A queue is where
+    ///
+    /// Multiple queues are currently unsupported.
+    ///
+    /// # Valid usage
+    /// - `command_pools` must be greater than 0.
+    /// - `command_buffers_per_pool` must be greater than 0.
     fn create_queue(
         &mut self,
         ty: QueueType,
@@ -829,7 +837,29 @@ pub trait DeviceRHI {
         command_buffers_per_pool: u32,
     ) -> Self::Queue;
 
+    /// Create a timeline semaphore
+    ///
+    /// Timeline semaphores can be used for coarse synchronization between different submissions either to the
+    /// same queue or to different queues as well as synchronizing with the host using [DeviceRHI::wait_semaphores].
+    /// When created, a semaphore will have `initial_value` and then can be signalled within a command buffer using
+    /// [CommandRHI::signal_after] and waited from a command buffer within a different submission using
+    /// [CommandRHI::wait_before]. The order of calls within a command buffer and the particular command buffer of the
+    /// submission are arbitrary.
+    ///
+    /// Note that semaphores cannot be used for fine grained synchronization within a single command buffer, for that
+    /// purpose, use [CommandRHI::barrier] and [CommandRHI::image_barrier]. They also cannot be used to synchronize
+    /// between multiple command buffers in a single submission.
+    ///
+    /// See [crate::Semaphore].
     fn create_semaphore(&mut self, initial_value: u64) -> Self::Semaphore;
+
+    /// Wait using semaphores on the host
+    ///
+    /// This function will block on the host until each timeline semaphore has a value equal or greater to the
+    /// respective value in the `values` array.
+    ///
+    /// # Valid usage
+    /// - `semaphores` and `values` must have the same length
     fn wait_semaphores(&self, semaphores: &[Self::Semaphore], values: &[u64]);
 
     /// Create a compute pipeline
@@ -863,39 +893,163 @@ pub trait DeviceRHI {
     ) -> Self::Pipeline;
 }
 
+/// Queue level functionality
+///
+/// Queues have their lifetimes associated with a device meaning that they are created with the device and are only
+/// destroyed with a device, however they do own their command buffers.
+///
+/// # Example
+/// ```
+/// let mut command_buffers = vec![];
+/// for i in 0..8 {
+///     command_buffers.push(queue.begin_recording(command_pool as u32));
+/// }
+/// thread::scope(|s| {
+///     for command_buffer in &mut command_buffers {
+///         s.spawn(|| {
+///             command_buffer.set_pipeline(&pipeline);
+///             command_buffer.gpu_dispatch(&[], [64, 1, 1]);
+///         });
+///     }
+/// });
+/// queue.submit(&command_buffers).unwrap();
+/// ```
+///
+/// See [DeviceRHI::create_queue]
 pub trait QueueRHI {
     type CommandBuffer: CommandRHI;
 
+    /// Start recording a command buffer
+    ///
+    /// # Valid usage
+    /// - `command_pool` must be less than the `command_pools` argument passed to [DeviceRHI::create_queue]
+    /// - This function must not be called more times
     fn begin_recording(&mut self, command_pool: u32) -> Self::CommandBuffer;
-    fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error>;
+
+    /// Submit a sequence of command buffers to this queue
+    ///
+    /// After calling this function, the command pool associated with the given command buffers will be reset
+    /// with the next call to [QueueRHI::begin_recording].
+    ///
+    /// # Valid usage
+    /// - All command buffers must originate from this queue
+    // TODO: it is likely fairly trivial to enforce this with lifetime arguments
+    /// - All command buffers must originate from the same command pool
+    /// - After submit is called, all command buffers from the same command pool acquired from begin_recording
+    /// after the last submit are invalidated (including ones that are not submitted) and no further functions
+    /// except [drop] should be called on them.
+    ///
+    /// # Safety
+    /// - The submitted commands must not touch host memory in a way that would violate Rust's safety invariants.
+    /// (I am not confident this can happen without additional unsafe code, but the basic gist is, be careful with
+    /// buffer addresses you share between device and host.)
+    /// - Any access(es) to resources during recording must be synchronized between the host and device. Under most
+    /// cases this just means allocating a semaphore per command buffer. Making one call to [CommandRHI::signal_after]
+    /// and then waiting on semaphores using [DeviceRHI::wait_semaphores].
+    ///
+    // TODO: Since we do not have fine grained synchronization with semaphores, it might be more sensible to move signals
+    // and waits to submit like in Vulkan. Providing a simple flexible API that can do it all is likely difficult with
+    // * `VkEvent`. I basically need to have a thread safe map of `VkEvent`s each matching a number passed to
+    // [DeviceRHI::wait_before] and [DeviceRHI::signal_after]. `VkEvent` objects can be reused after successfully being
+    // signalled but the value tracking is nontrivial and there is still the potential concern of too many `VkEvent`s being
+    // created. I might visit this problem way later when I have a better general grasp into this API.
+    ///
+    /// # Errors
+    /// Device loss may occur due to invalid command buffer usage
+    unsafe fn submit(&mut self, command_buffers: &[Self::CommandBuffer]) -> Result<(), Error>;
 }
 
+/// Pipeline stage flags
+///
+/// Used for synchronization. See [CommandRHI::wait_before] and [CommandRHI::signal_after] for synchronization between
+/// queue submissions and with the host. See [CommandRHI::barrier] and [CommandRHI::image_barrier] for synchronization
+/// within a command buffer.
 #[derive(Debug, Clone, Copy)]
 pub enum Stage {
+    /// No stage
     None,
+    /// "Stage" before all pipeline stages
+    ///
+    /// If set to before, equivalent to [Stage::None]. If set to after, equivalent to [Stage::AllCommands].
     TopOfPipe,
+    /// Stage where indirect draw and indirect dispatch commands are issued
+    ///
+    /// This happens before [Stage::ComputeShader], [Stage::VertexShader], [Stage::TaskShader], and
+    /// [Stage::MeshShader] depending on the pipeline.
     DrawIndirect,
+    /// Vertex shader stage
+    ///
+    /// Happens before [Stage::FragmentShader]
     VertexShader,
+    /// Fragment or pixel shader stage
+    ///
+    /// Happens after [Stage::EarlyFragmentTests] and [Stage::VertexShader]. Happens before [Stage::LateFragmentTests]
     FragmentShader,
+    /// The early fragment tests stage
+    ///
+    /// This stage includes depth and stencil tests before fragment shading and depth/stencil load operations.
+    ///
+    /// Happens before [Stage::FragmentShader].
     EarlyFragmentTests,
+    /// The late fragment tests stage
+    ///
+    /// This stage includes depth and stencil tests after fragment shading and depth/stencil store operations.
+    ///
+    /// Happens after [Stage::FragmentShader] and before [Stage::ColorAttachmentOutput].
     LateFragmentTests,
+    /// Final color output stage
+    ///
+    /// This stage includes load and store operations for color attachments, blending, and multisample resolve operations.
+    ///
+    /// Happens after [Stage::LateFragmentTests].
     ColorAttachmentOutput,
+    /// Compute shader stage
     ComputeShader,
+    /// Transfer operations stage
+    ///
+    /// This stage includes [Stage::Copy], [Stage::Resolve], [Stage::Blit] and [Stage::Clear].
     Transfer,
+    /// "Stage" after all pipeline stages
+    ///
+    /// If set to before, equivalent to [Stage::AllCommands], if set to after, equivalent to [Stage::None].
     BottomOfPipe,
+    /// All graphics commands
+    ///
+    /// [Stage::ColorAttachmentOutput] is the "last" graphics command in a pipeline.
     AllGraphics,
+    /// All commands that the queue supports
     AllCommands,
+    /// Host reads and writes of device memory
+    ///
+    /// Not a pipeline stage, but indicates to the device of potential hazards with host memory accesses.
     Host,
+    /// Copy commands
     Copy,
+    /// Multisample resolve commands
+    // TODO: currently no API to do multisample resolve directly
     Resolve,
+    /// Blit commands
     Blit,
+    /// Clear commands
+    // TODO: currently, there is no clear command API at all, and I am not sure if we should have it
     Clear,
+    /// Task shader stage
+    ///
+    /// If it exists, happens before [Stage::MeshShader] and is unsequenced relative to other graphics pipeline
+    /// stages.
     TaskShader,
+    /// Mesh shader stage
+    ///
+    /// Happens before [Stage::FragmentShader] and is unsequenced relative to other graphics pipeline stages.
     MeshShader,
 }
 
+/// Layout of an image and its resources
+///
+///
 #[derive(Debug, Clone, Copy)]
 pub enum ImageLayout {
+    /// The undefined image layout
     Undefined,
     General,
     Attachment,
