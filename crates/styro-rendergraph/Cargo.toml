@@ -2,6 +2,8 @@
 name = "styro-rendergraph"
 version = "0.1.0"
 edition = "2024"
+description = "The styrofoam render graph"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 styro-rhi = { workspace = true }

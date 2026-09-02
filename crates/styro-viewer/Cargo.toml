@@ -2,6 +2,8 @@
 name = "styro-viewer"
 version = "0.1.0"
 edition = "2024"
+description = "The styrofoam viewer"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 egui = { workspace = true }
