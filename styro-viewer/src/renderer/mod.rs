@@ -1,5 +1,8 @@
 use core::slice;
+use std::collections::HashMap;
 use std::fs::File;
+use std::marker::PhantomData;
+use std::ptr;
 use styro_rhi::Attachment;
 use styro_rhi::BufferInfo;
 use styro_rhi::BufferUsage;
@@ -426,7 +429,7 @@ struct UiPushData {
 struct UiDataGpu {
     vertex_buffer: GpuPtr,
     index_buffer: GpuPtr,
-    textures: Vec<GpuPtr>,
+    textures: HashMap<u64, GpuPtr>,
     pipeline: Pipeline,
 }
 
@@ -454,161 +457,123 @@ impl UiDataGpu {
         Self {
             vertex_buffer: GpuPtr::null(),
             index_buffer: GpuPtr::null(),
-            textures: vec![],
+            textures: HashMap::new(),
             pipeline,
         }
     }
 
-    fn update(&mut self, data: &UiData) {
+    fn update(&mut self, renderer: &mut Renderer, data: &UiData) {
+        let device = &mut renderer.device;
+        let vertex_length: u32 = data
+            .triangles
+            .iter()
+            .map(|primitive| match &primitive.primitive {
+                egui::epaint::Primitive::Mesh(mesh) => mesh.vertices.len() as u32,
+                _ => 0u32,
+            })
+            .sum::<u32>()
+            * size_of::<egui::epaint::Vertex>() as u32;
+
+        let index_length: u32 = data
+            .triangles
+            .iter()
+            .map(|primitive| match &primitive.primitive {
+                egui::epaint::Primitive::Mesh(mesh) => mesh.indices.len() as u32,
+                _ => 0u32,
+            })
+            .sum::<u32>()
+            * size_of::<egui::epaint::Vertex>() as u32;
+
+        if self.vertex_buffer.is_null() {
+            self.vertex_buffer = device.create_buffer(&BufferInfo {
+                memory: Memory::HostVisible,
+                size: vertex_length as u64,
+                usage: BufferUsage::General,
+            });
+            device.set_object_name(self.vertex_buffer, c"egui vertex buffer");
+        } else if self.vertex_buffer.size < vertex_length {
+            unsafe {
+                device.destroy_ptr(self.vertex_buffer);
+            }
+            self.vertex_buffer = device.create_buffer(&BufferInfo {
+                memory: Memory::HostVisible,
+                size: vertex_length as u64,
+                usage: BufferUsage::General,
+            });
+            device.set_object_name(self.vertex_buffer, c"egui vertex buffer");
+        }
+        if self.index_buffer.is_null() {
+            self.index_buffer = device.create_buffer(&BufferInfo {
+                memory: Memory::HostVisible,
+                size: index_length as u64,
+                usage: BufferUsage::General,
+            });
+            device.set_object_name(self.index_buffer, c"egui index buffer");
+        } else if self.index_buffer.size < index_length {
+            unsafe {
+                device.destroy_ptr(self.vertex_buffer);
+            }
+            self.index_buffer = device.create_buffer(&BufferInfo {
+                memory: Memory::HostVisible,
+                size: index_length as u64,
+                usage: BufferUsage::General,
+            });
+            device.set_object_name(self.index_buffer, c"egui index buffer");
+        }
+        let mut vertex_addr = device.buffer_host_addr(self.vertex_buffer);
+        let mut index_addr = device.buffer_host_addr(self.index_buffer);
+
         for primitive in &data.triangles {
             match &primitive.primitive {
                 egui::epaint::Primitive::Mesh(mesh) => {
                     let vertex_data: &[u8] = &bytemuck::cast_slice(&mesh.vertices);
                     let index_data: &[u8] = &bytemuck::cast_slice(&mesh.indices);
 
-                    //self.create_or_update_buffers(renderer, vertex_data, index_data);
+                    unsafe {
+                        ptr::copy_nonoverlapping(
+                            vertex_data.as_ptr(),
+                            vertex_addr,
+                            vertex_data.len(),
+                        );
+                        vertex_addr = vertex_addr.byte_add(vertex_data.len());
+                        ptr::copy_nonoverlapping(index_data.as_ptr(), index_addr, index_data.len());
+                        index_addr = index_addr.byte_add(index_data.len());
+                    }
                 }
-                egui::epaint::Primitive::Callback(paint_callback) => panic!("Not supported"),
+                egui::epaint::Primitive::Callback(_) => panic!("Not supported"),
             }
-            break;
+        }
+
+        for id in &data.textures.free {
+            match id {
+                egui::TextureId::Managed(_) => { /* nothing to do */ }
+                egui::TextureId::User(id) => {
+                    if let Some(tex) = self.textures.remove(id) {
+                        unsafe { device.destroy_ptr(tex) };
+                    }
+                }
+            }
+        }
+        for (id, delta) in &data.textures.set {
+            match id {
+                egui::TextureId::Managed(_) => todo!(),
+                egui::TextureId::User(id) => {
+                    if let Some(texture) = self.textures.get(id) {
+                        if let Some(pos) = delta.pos {
+                            // part of the image
+                        } else {
+                            // entire image
+                        }
+                    } else {
+                        let image = device.create_image(&ImageInfo {
+                            dimensions: [0, 0, 0],
+                            format: Format::R8G8B8A8_Snorm,
+                            ..Default::default()
+                        });
+                        self.textures.insert(*id, image);
+                    }
+                }
+            }
         }
     }
 }
-
-//struct UiDataGpu {
-//    vertex_buffer: Buffer,
-//    index_buffer: Buffer,
-//    textures: Vec<Image>,
-//    pipeline: Pipeline,
-//    push_data: UiPushData,
-//}
-//
-//impl UiDataGpu {}
-//
-//impl UiDataGpu {
-//    const fn vertex_size() -> usize {
-//        size_of::<egui::epaint::Vertex>()
-//    }
-//}
-//
-//impl UiRenderer {
-//    pub fn new() -> Self {
-//        Self { data: None }
-//    }
-//
-//    fn create_or_update_buffers(
-//        &mut self,
-//        renderer: &mut Renderer,
-//        vertex_data: &[u8],
-//        index_data: &[u8],
-//    ) {
-//        let device = &renderer._device;
-//        let vertex_buffer_len = vertex_data.len();
-//        let index_buffer_len = index_data.len();
-//        if let None = self.data {
-//            let vertex_buffer = renderer.descriptor_heap.create_buffer(
-//                vertex_buffer_len as u64,
-//                vk::BufferUsageFlags::STORAGE_BUFFER
-//                    | vk::BufferUsageFlags::TRANSFER_DST
-//                    | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-//            );
-//
-//            let index_buffer = Buffer::new(
-//                Arc::clone(&device),
-//                index_buffer_len as u64,
-//                vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-//            )
-//            .unwrap()
-//            .debug_name(c"UI index buffer");
-//
-//            let image = Image::new(
-//                Arc::clone(&device),
-//                vk::Extent2D {
-//                    width: 64,
-//                    height: 64,
-//                },
-//            )
-//            .debug_name(c"UI texture");
-//
-//            let shader_module = Arc::clone(&device).create_shader_module(
-//                &Slangc::new()
-//                    .compile(Path::new("res/shaders/2d/egui.slang"))
-//                    .unwrap(),
-//            );
-//            let pipeline = renderer
-//                .pipeline_cache
-//                .create_graphics_pipeline(
-//                    &TargetFormat {
-//                        color: &[vk::Format::R8G8B8A8_SRGB],
-//                        depth: None,
-//                        stencil: None,
-//                    },
-//                    &shader_module,
-//                )
-//                .unwrap()
-//                .debug_name(c"Ui pipeline");
-//
-//            todo!();
-//            //self.data = Some(UiDataGpu {
-//            //    vertex_buffer,
-//            //    index_buffer,
-//            //    textures: vec![],
-//            //    pipeline,
-//            //    push_data: UiPushData {
-//            //        mesh_id,
-//            //        texture_id: -1,
-//            //    },
-//            //});
-//        }
-//
-//        if let Some(ref gpu_data) = self.data {
-//            // Need resize
-//            gpu_data.vertex_buffer.copy_to_buffer(vertex_data, 0);
-//            gpu_data.index_buffer.copy_to_buffer(index_data, 0);
-//        }
-//    }
-//
-//    pub fn update(&mut self, data: UiData, renderer: &mut Renderer) {
-//        for primitive in &data.triangles {
-//            match &primitive.primitive {
-//                egui::epaint::Primitive::Mesh(mesh) => {
-//                    let vertex_data: &[u8] = &bytemuck::cast_slice(&mesh.vertices);
-//                    let index_data: &[u8] = &bytemuck::cast_slice(&mesh.indices);
-//
-//                    self.create_or_update_buffers(renderer, vertex_data, index_data);
-//                }
-//                egui::epaint::Primitive::Callback(paint_callback) => panic!("Not supported"),
-//            }
-//            break;
-//        }
-//    }
-//}
-//
-//// Probably better to actually implement this on GpuData instead
-//impl Renderable for UiRenderer {
-//    fn record_command_buffer(&self, command_buffer: &RecordingCommandBuffer) {
-//        if let Some(ref gpu_data) = self.data {
-//            command_buffer.cmd_bind_pipeline(vk::PipelineBindPoint::GRAPHICS, &gpu_data.pipeline);
-//
-//            let index_buffer = &gpu_data.index_buffer;
-//            command_buffer.cmd_bind_index_buffer2(
-//                index_buffer,
-//                0,
-//                index_buffer.len(),
-//                vk::IndexType::UINT32,
-//            );
-//            let index_count = index_buffer.len() as u32 / 4;
-//
-//            command_buffer.cmd_push_data(bytemuck::bytes_of(&gpu_data.push_data));
-//
-//            command_buffer.cmd_draw_indexed(
-//                index_count,
-//                1,
-//                0,
-//                0, // ?
-//                0,
-//            );
-//        }
-//    }
-//}
-//
