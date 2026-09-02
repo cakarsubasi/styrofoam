@@ -101,6 +101,7 @@ impl ApplicationHandler for App {
                 if let Some(renderer) = renderer {
                     if let Err(err) = renderer.request_redraw() {
                         // Window resized, minimized, etc.
+                        renderer.recreate_swapchain();
                         eprintln!("{:?}", err);
                     } else {
                         app_context.window.request_redraw();

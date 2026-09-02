@@ -172,6 +172,15 @@ impl Renderer {
         *next_frame += 1;
         Ok(())
     }
+
+    pub fn recreate_swapchain(&mut self) {
+        //self.swapchain.recreate_swapchain(&SwapchainInfo {
+        //    size: (),
+        //    format: (),
+        //    color_space: (),
+        //    preferred_extent: (),
+        //})
+    }
 }
 
 pub struct TriangleRenderData {
