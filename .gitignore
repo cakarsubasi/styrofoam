@@ -1,3 +1,8 @@
+# Rust build directory
 /target
 
+# Ignore Spir-V assembly unless we specifically include it
 *.spv
+
+# Zed configuration
+.zed/
