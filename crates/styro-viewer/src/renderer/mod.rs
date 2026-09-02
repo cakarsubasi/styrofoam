@@ -283,7 +283,7 @@ impl TextureRenderData {
             slice.copy_from_slice(&INDEX_BUFFER);
         }
 
-        let image_bytes = include_bytes!("../../../res/images/rust.png");
+        let image_bytes = include_bytes!("../../../../res/images/rust.png");
         let image =
             image::load_from_memory_with_format(image_bytes, image::ImageFormat::Png).unwrap();
         let image = image.to_rgba8();
