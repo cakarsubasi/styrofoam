@@ -1046,17 +1046,32 @@ pub enum Stage {
 
 /// Layout of an image and its resources
 ///
-///
+/// The optimal memory layout of an image will typically depend on what an image is being used for.
 #[derive(Debug, Clone, Copy)]
 pub enum ImageLayout {
     /// The undefined image layout
+    ///
+    /// An image starts in the undefined layout when created
     Undefined,
+    /// General image layout
+    ///
+    /// Can be used for most tasks
     General,
+    // TODO: this might not be adequate and it might be needed to more granularly specify whether
+    // something is a color attachment, depth attachment, stencil attachment, or a depth-stencil
+    // attachment. ALthough ideally, we wouldn't deal with these at all and just set everything to General.
     Attachment,
+    /// Optimal layout for reading within a pass
     ShaderReadOnlyOptimal,
+    /// Optimal layout for copying from
     TransferSrcOptimal,
+    /// Optimal layout to copy to
     TransferDstOptimal,
+    /// Optimal layout for an input attachment
+    ///
+    ///
     RenderingLocalRead,
+    /// Layout as a presentation source for a surface
     PresentSrc,
 }
 
@@ -1077,14 +1092,58 @@ pub struct ImageBlitInfo {
     pub dst_extent: UVec3,
 }
 
+/// Structure for indirect drawing
+///
+///
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct CommandDrawIndexedInstancedIndirect {
+    index_count: u32,
+    instance_count: u32,
+    first_index: u32,
+    vertex_offset: i32,
+    first_instance: u32,
+}
+
+/// Structure for indirect dispatch
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct CommandDispatchIndirect {
+    x: u32,
+    y: u32,
+    z: u32,
+}
+
+/// Command buffer level functionality
+///
+/// Command buffers allow a series of device commands to be recorded between calls to [QueueRHI::begin_recording] and
+/// [QueueRHI::submit]. Commands are queued in recording order but may complete out of order. In practice, this means
+/// that you need to ensure any two commands that depend on each other need to explicitly synchronize. This can be
+/// done using [CommandRHI::barrier] and [CommandRHI::image_barrier] within the same command buffer which require
+/// that commands before the barrier need to reach at leas
+///
+/// # General rules
+///
+/// # Lifetime rules
+/// The lifetime of a command buffer is associated with every other command buffer in the same command
+/// pool. When a submission operation takes place, all command buffers within that pool (whether submitted
+/// or not) are invalidated and any recorded commands that did not participate in the submission are ignored.
 pub trait CommandRHI {
     type GpuPtr;
     type Pipeline;
     type Semaphore;
 
+    /// Copy `src_buffer` to `dst_buffer`
+    ///
+    ///
     fn copy_buffer(&mut self, src_buffer: Self::GpuPtr, dst_buffer: Self::GpuPtr);
 
+    /// Copy `src_buffer` bytes to `dst_image`
+    // TODO: it might be a good idea to make this API a bit more obvious
     fn copy_to_image(&mut self, src_buffer: Self::GpuPtr, dst_image: Self::GpuPtr);
+
+    /// Copy `src_image` bytes to `dst_buffer`
+    // TODO: it might be a good idea to make this API a bit more obvious
     fn copy_from_image(&mut self, src_image: Self::GpuPtr, dst_buffer: Self::GpuPtr);
     fn copy_image(
         &mut self,
@@ -1107,6 +1166,12 @@ pub trait CommandRHI {
     fn push_descriptors(&mut self, images: &[GpuPtr], samplers: &[SamplerInfo], offset: u32);
 
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
+
+    /// Perform an image layout transition
+    ///
+    /// # Valid usage
+    /// - `image` must be a valid image
+    /// - `layout` must not be [ImageLayout::Undefined]
     fn image_barrier(
         &mut self,
         before: Stage,
@@ -1135,8 +1200,7 @@ pub trait CommandRHI {
         indices: Self::GpuPtr,
         indirect: Self::GpuPtr,
     );
-    // let's skip this one for now
-    // fn draw_indexed_instanced_indirect_multi(&mut self, ...);
+
     fn draw_meshlets(&mut self, data: PushData, dimension: UVec3);
     fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr);
 }
