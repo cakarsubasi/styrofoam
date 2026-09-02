@@ -304,11 +304,13 @@ impl CommandRHI for CommandBuffer {
         let src_size = src_buffer.len();
         let dst_size = dst_buffer.len();
 
+        let src_offset = src.offset;
+        let dst_offset = dst.offset;
+
         assert!(dst_size >= src_size);
-        // TODO: we might wish to have more flexible copying
         let info = [vk::BufferCopy::default()
-            .src_offset(0)
-            .dst_offset(0)
+            .src_offset(src_offset as u64)
+            .dst_offset(dst_offset as u64)
             .size(src_size)];
 
         unsafe {
