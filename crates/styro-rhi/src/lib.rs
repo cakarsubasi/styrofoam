@@ -19,6 +19,12 @@ pub use ash;
 
 pub use ash::util::read_spv;
 
+pub mod traits {
+    pub use crate::CommandRHI;
+    pub use crate::DeviceRHI;
+    pub use crate::QueueRHI;
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Error {
     DeviceLost,
