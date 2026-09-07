@@ -804,7 +804,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn gpu_dispatch(&mut self, data: PushData, dimensions: UVec3) {
+    fn dispatch(&mut self, data: PushData, dimensions: UVec3) {
         unsafe {
             self.push_data(data);
 
@@ -814,7 +814,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn gpu_dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr) {
+    fn dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr) {
         unsafe {
             self.push_data(data);
             let heap = self.heap.read().unwrap();
@@ -952,7 +952,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn draw_indexed_instanced(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32) {
+    fn draw_indexed(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32) {
         unsafe {
             self.push_data(data);
 
@@ -980,7 +980,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn draw_indexed_instanced_indirect(
+    fn draw_indexed_indirect(
         &mut self,
         data: PushData,
         indices: Self::GpuPtr,

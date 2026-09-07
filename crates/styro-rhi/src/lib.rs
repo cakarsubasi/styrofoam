@@ -1186,15 +1186,15 @@ pub trait CommandRHI {
     fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo);
     fn set_blend_state(&mut self, state: &BlendInfo);
 
-    fn gpu_dispatch(&mut self, data: PushData, dimensions: UVec3);
-    fn gpu_dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr);
+    fn dispatch(&mut self, data: PushData, dimensions: UVec3);
+    fn dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr);
 
     fn begin_rendering(&mut self, desc: &RenderingInfo);
     fn end_rendering(&mut self);
 
     fn draw(&mut self, data: PushData, indices: u32, instances: u32);
-    fn draw_indexed_instanced(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32);
-    fn draw_indexed_instanced_indirect(
+    fn draw_indexed(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32);
+    fn draw_indexed_indirect(
         &mut self,
         data: PushData,
         indices: Self::GpuPtr,
