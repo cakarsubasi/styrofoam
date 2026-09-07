@@ -234,7 +234,7 @@ impl TriangleRenderData {
     fn draw(&self, command_buffer: &mut CommandBuffer) {
         command_buffer.begin_rendering(&Default::default());
         command_buffer.set_pipeline(&self.pipeline);
-        command_buffer.draw_indexed_instanced(&[], self.indices, 1);
+        command_buffer.draw_indexed(&[], self.indices, 1);
         command_buffer.end_rendering();
     }
 }
@@ -387,11 +387,7 @@ impl TextureRenderData {
         });
         command_buffer.set_pipeline(&self.pipeline);
         let push_data = [0u32, 0u32];
-        command_buffer.draw_indexed_instanced(
-            &bytemuck::cast_slice(push_data.as_slice()),
-            self.indices,
-            1,
-        );
+        command_buffer.draw_indexed(&bytemuck::cast_slice(push_data.as_slice()), self.indices, 1);
         command_buffer.end_rendering();
     }
 
