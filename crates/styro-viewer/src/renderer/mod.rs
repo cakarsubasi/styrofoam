@@ -1,8 +1,8 @@
 use core::slice;
 use std::collections::HashMap;
 use std::fs::File;
-use std::marker::PhantomData;
 use std::ptr;
+use styro_rendergraph::RenderGraph;
 use styro_rhi::Attachment;
 use styro_rhi::BufferInfo;
 use styro_rhi::BufferUsage;
@@ -43,11 +43,51 @@ use styro_rhi::read_spv;
 use winit::raw_window_handle::RawDisplayHandle;
 use winit::raw_window_handle::RawWindowHandle;
 
+use crate::renderer::ui::UiData;
+use crate::renderer::ui::UiRenderer;
+
+mod ui;
+
 pub struct Renderer {
     device: Device,
     graphics_queue: Queue,
     swapchain: Swapchain,
     state: RenderState,
+}
+
+pub struct Renderer2 {
+    render_graph: RenderGraph,
+
+    persistent_renderers: PersistentRenderers,
+}
+
+impl Renderer2 {
+    fn new(raw_display_handle: RawDisplayHandle, raw_window_handle: RawWindowHandle) -> Self {
+        let mut render_graph = RenderGraph::new(raw_display_handle, raw_window_handle);
+
+        let persistent_renderers = PersistentRenderers {
+            ui: UiRenderer::new(render_graph.device_mut()),
+        };
+
+        Self {
+            render_graph,
+            persistent_renderers,
+        }
+    }
+
+    fn run(&mut self, ui_data: UiData) {
+        let mut frame = self.render_graph.new_frame();
+
+        let swapchain_image = frame.swapchain_image();
+
+        self.persistent_renderers
+            .ui
+            .run(&mut frame, swapchain_image, ui_data);
+    }
+}
+
+pub struct PersistentRenderers {
+    ui: UiRenderer,
 }
 
 struct RenderState {
@@ -398,178 +438,6 @@ impl TextureRenderData {
             device.destroy_ptr(self.texture);
             device.destroy_ptr(self.staging_buffer);
             device.destroy_ptr(self.indices);
-        }
-    }
-}
-
-pub struct UiData {
-    pub triangles: Vec<egui::ClippedPrimitive>,
-    pub textures: egui::TexturesDelta,
-}
-
-#[derive(bytemuck::Zeroable, bytemuck::Pod, Clone, Copy)]
-#[repr(C)]
-struct EguiVertex {
-    pos: [f32; 2],  // 8
-    uv: [f32; 2],   // 16
-    color: [u8; 4], // 20
-}
-
-#[derive(bytemuck::Zeroable, bytemuck::Pod, Clone, Copy)]
-#[repr(C)]
-struct UiPushData {
-    vertices: u64,
-    texture: [i32; 2],
-}
-
-struct UiDataGpu {
-    vertex_buffer: GpuPtr,
-    index_buffer: GpuPtr,
-    textures: HashMap<u64, GpuPtr>,
-    pipeline: Pipeline,
-}
-
-impl UiDataGpu {
-    fn new(device: &mut Device) -> Self {
-        let mut spv = File::open("egui.spv").unwrap();
-        let text = read_spv(&mut spv).unwrap();
-
-        let vertex_ir = ShaderIR {
-            bytes: &text,
-            entry: c"vertMain",
-        };
-        let frag_ir = ShaderIR {
-            bytes: &text,
-            entry: c"fragMain",
-        };
-        let description = RasterDescription {
-            color_formats: &[Format::R8G8B8A8_Srgb],
-            cull: Cull::NONE,
-            ..Default::default()
-        };
-
-        let pipeline =
-            unsafe { device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description) };
-        Self {
-            vertex_buffer: GpuPtr::null(),
-            index_buffer: GpuPtr::null(),
-            textures: HashMap::new(),
-            pipeline,
-        }
-    }
-
-    fn update(&mut self, renderer: &mut Renderer, data: &UiData) {
-        let device = &mut renderer.device;
-        let vertex_length: u32 = data
-            .triangles
-            .iter()
-            .map(|primitive| match &primitive.primitive {
-                egui::epaint::Primitive::Mesh(mesh) => mesh.vertices.len() as u32,
-                _ => 0u32,
-            })
-            .sum::<u32>()
-            * size_of::<egui::epaint::Vertex>() as u32;
-
-        let index_length: u32 = data
-            .triangles
-            .iter()
-            .map(|primitive| match &primitive.primitive {
-                egui::epaint::Primitive::Mesh(mesh) => mesh.indices.len() as u32,
-                _ => 0u32,
-            })
-            .sum::<u32>()
-            * size_of::<egui::epaint::Vertex>() as u32;
-
-        if self.vertex_buffer.is_null() {
-            self.vertex_buffer = device.create_buffer(&BufferInfo {
-                memory: Memory::HostVisible,
-                size: vertex_length as u64,
-                usage: BufferUsage::General,
-            });
-            device.set_object_name(self.vertex_buffer, c"egui vertex buffer");
-        } else if self.vertex_buffer.size < vertex_length {
-            unsafe {
-                device.destroy_ptr(self.vertex_buffer);
-            }
-            self.vertex_buffer = device.create_buffer(&BufferInfo {
-                memory: Memory::HostVisible,
-                size: vertex_length as u64,
-                usage: BufferUsage::General,
-            });
-            device.set_object_name(self.vertex_buffer, c"egui vertex buffer");
-        }
-        if self.index_buffer.is_null() {
-            self.index_buffer = device.create_buffer(&BufferInfo {
-                memory: Memory::HostVisible,
-                size: index_length as u64,
-                usage: BufferUsage::General,
-            });
-            device.set_object_name(self.index_buffer, c"egui index buffer");
-        } else if self.index_buffer.size < index_length {
-            unsafe {
-                device.destroy_ptr(self.vertex_buffer);
-            }
-            self.index_buffer = device.create_buffer(&BufferInfo {
-                memory: Memory::HostVisible,
-                size: index_length as u64,
-                usage: BufferUsage::General,
-            });
-            device.set_object_name(self.index_buffer, c"egui index buffer");
-        }
-        let mut vertex_addr = device.buffer_host_addr(self.vertex_buffer);
-        let mut index_addr = device.buffer_host_addr(self.index_buffer);
-
-        for primitive in &data.triangles {
-            match &primitive.primitive {
-                egui::epaint::Primitive::Mesh(mesh) => {
-                    let vertex_data: &[u8] = &bytemuck::cast_slice(&mesh.vertices);
-                    let index_data: &[u8] = &bytemuck::cast_slice(&mesh.indices);
-
-                    unsafe {
-                        ptr::copy_nonoverlapping(
-                            vertex_data.as_ptr(),
-                            vertex_addr,
-                            vertex_data.len(),
-                        );
-                        vertex_addr = vertex_addr.byte_add(vertex_data.len());
-                        ptr::copy_nonoverlapping(index_data.as_ptr(), index_addr, index_data.len());
-                        index_addr = index_addr.byte_add(index_data.len());
-                    }
-                }
-                egui::epaint::Primitive::Callback(_) => panic!("Not supported"),
-            }
-        }
-
-        for id in &data.textures.free {
-            match id {
-                egui::TextureId::Managed(_) => { /* nothing to do */ }
-                egui::TextureId::User(id) => {
-                    if let Some(tex) = self.textures.remove(id) {
-                        unsafe { device.destroy_ptr(tex) };
-                    }
-                }
-            }
-        }
-        for (id, delta) in &data.textures.set {
-            match id {
-                egui::TextureId::Managed(_) => todo!(),
-                egui::TextureId::User(id) => {
-                    if let Some(texture) = self.textures.get(id) {
-                        if let Some(pos) = delta.pos {
-                            // part of the image
-                        } else {
-                            // entire image
-                        }
-                    } else {
-                        let image = device.create_image(&ImageInfo {
-                            dimensions: [0, 0, 0],
-                            format: Format::R8G8B8A8_Snorm,
-                            ..Default::default()
-                        });
-                        self.textures.insert(*id, image);
-                    }
-                }
-            }
         }
     }
 }
