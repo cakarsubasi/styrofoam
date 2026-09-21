@@ -11,4 +11,5 @@ egui-winit = { workspace = true }
 image = { workspace = true }
 winit = { workspace = true }
 styro-rhi = { workspace = true }
+styro-rendergraph = { workspace = true }
 bytemuck = { workspace = true }

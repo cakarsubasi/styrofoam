@@ -6,4 +6,6 @@ description = "The styrofoam render graph"
 license = "GPL-3.0-or-later"
 
 [dependencies]
+bytemuck = { workspace = true }
+raw-window-handle = { workspace = true }
 styro-rhi = { workspace = true }

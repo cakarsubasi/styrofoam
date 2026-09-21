@@ -2555,6 +2555,8 @@ checksum = "6637bab7722d379c8b41ba849228d680cc12d0a45ba1fa2b48f2a30577a06731"
 name = "styro-rendergraph"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
+ "raw-window-handle",
  "styro-rhi",
 ]
 
@@ -2585,6 +2587,7 @@ dependencies = [
  "egui",
  "egui-winit",
  "image",
+ "styro-rendergraph",
  "styro-rhi",
  "winit",
 ]
