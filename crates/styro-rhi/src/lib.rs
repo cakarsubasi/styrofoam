@@ -1,3 +1,5 @@
+/// Debugging
+pub mod debug;
 /// format is so bloated, it gets its own module
 mod format;
 /// Querying physical devices and device creation
@@ -23,6 +25,8 @@ pub mod traits {
     pub use crate::CommandRHI;
     pub use crate::DeviceRHI;
     pub use crate::QueueRHI;
+
+    pub use crate::debug::*;
 }
 
 #[derive(Debug, Clone, Copy)]

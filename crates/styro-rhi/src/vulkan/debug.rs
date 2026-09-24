@@ -1,6 +1,11 @@
 use ash::{ext, vk};
 use std::{borrow::Cow, ffi::CStr};
 
+use crate::{
+    CommandBuffer, Queue,
+    debug::{DebugCommandRHI, DebugQueueRHI},
+};
+
 // TODO: might wish to redirect these errors to a UI component later
 pub(super) unsafe extern "system" fn vulkan_debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -54,5 +59,79 @@ pub(super) unsafe fn create_debug_messenger(
             .create_debug_utils_messenger(&debug_info, None)
             .unwrap();
         debug_messenger
+    }
+}
+
+impl DebugQueueRHI for Queue {
+    fn debug_label(&self, label: &CStr, color: [f32; 4]) {
+        let handles = self.handles();
+        let queue = self.queue();
+        unsafe {
+            handles.debug_utils.queue_insert_debug_utils_label(
+                queue,
+                &vk::DebugUtilsLabelEXT::default()
+                    .label_name(&label)
+                    .color(color),
+            );
+        }
+    }
+
+    fn debug_begin_region(&self, label: &CStr, color: [f32; 4]) {
+        let handles = self.handles();
+        let queue = self.queue();
+        unsafe {
+            handles.debug_utils.queue_begin_debug_utils_label(
+                queue,
+                &vk::DebugUtilsLabelEXT::default()
+                    .label_name(&label)
+                    .color(color),
+            );
+        }
+    }
+
+    fn debug_end_region(&self) {
+        let handles = self.handles();
+        let queue = self.queue();
+        unsafe {
+            handles.debug_utils.queue_end_debug_utils_label(queue);
+        }
+    }
+}
+
+impl DebugCommandRHI for CommandBuffer {
+    fn debug_label(&self, label: &CStr, color: [f32; 4]) {
+        let handles = &self.device;
+        let command_buffer = self.inner;
+        unsafe {
+            handles.debug_utils.cmd_insert_debug_utils_label(
+                command_buffer,
+                &vk::DebugUtilsLabelEXT::default()
+                    .label_name(&label)
+                    .color(color),
+            );
+        }
+    }
+
+    fn debug_begin_region(&self, label: &CStr, color: [f32; 4]) {
+        let handles = &self.device;
+        let command_buffer = self.inner;
+        unsafe {
+            handles.debug_utils.cmd_begin_debug_utils_label(
+                command_buffer,
+                &vk::DebugUtilsLabelEXT::default()
+                    .label_name(&label)
+                    .color(color),
+            );
+        }
+    }
+
+    fn debug_end_region(&self) {
+        let handles = &self.device;
+        let command_buffer = self.inner;
+        unsafe {
+            handles
+                .debug_utils
+                .cmd_end_debug_utils_label(command_buffer);
+        }
     }
 }

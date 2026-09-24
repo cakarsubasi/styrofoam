@@ -858,6 +858,14 @@ pub struct Queue {
 }
 
 impl Queue {
+    pub(super) fn queue(&self) -> vk::Queue {
+        self.queue.queue
+    }
+
+    pub(super) fn handles(&self) -> Arc<DeviceHandles> {
+        self.device.upgrade().unwrap()
+    }
+
     fn get_command_buffer(&mut self, command_pool: u32) -> vk::CommandBuffer {
         let queue = &self.queue; //.upgrade().unwrap();
         let command_pool = queue
