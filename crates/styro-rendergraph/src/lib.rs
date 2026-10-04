@@ -12,11 +12,6 @@ use crate::resource::{
 pub mod pass;
 pub mod resource;
 
-struct Dependency {
-    pass: usize,
-    input: usize,
-}
-
 // Derive already gives the right order
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct EdgeKey {
@@ -24,12 +19,12 @@ struct EdgeKey {
     output_pass: usize,
 }
 
-struct Edge {
+struct Dependency {
     input_dependency: (),
     output_dependency: (),
 }
 
-type GraphEdges = BTreeMap<EdgeKey, Edge>;
+type GraphEdges = BTreeMap<EdgeKey, Dependency>;
 
 struct GraphResources {}
 
@@ -75,7 +70,7 @@ impl<'graph, 'frame, 'pass> PassBuilder<'graph, 'frame, 'pass> {
                     input_pass,
                     output_pass,
                 },
-                Edge {
+                Dependency {
                     input_dependency: (),
                     output_dependency: (),
                 },
@@ -106,16 +101,13 @@ impl<'graph, 'frame, 'pass> PassBuilder<'graph, 'frame, 'pass> {
     }
 }
 
-fn compile<T>(nodes: Vec<T>, edges: GraphEdges) -> Vec<T> {
+fn compile<Vertex, Edge>(nodes: Vec<Vertex>, edges: BTreeMap<EdgeKey, Edge>) -> Vec<Vertex> {
     // Step 1: figure out starting nodes
 
-    // O(|V|)
     let mut visited = vec![false; nodes.len()];
-    // O(|E|)
     for (edge, _) in &edges {
         visited[edge.output_pass] = true;
     }
-    // (O|V|)
     let mut starting = vec![];
     for (idx, node) in visited.iter().enumerate() {
         if *node {
@@ -129,7 +121,7 @@ fn compile<T>(nodes: Vec<T>, edges: GraphEdges) -> Vec<T> {
 
     for node in starting {
         sorted.push(node);
-        for (key, value) in edges.range(
+        for (key, _) in edges.range(
             EdgeKey {
                 input_pass: node,
                 output_pass: 0,
