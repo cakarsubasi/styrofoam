@@ -16,10 +16,16 @@ impl<T: LogicalResource> Persistent<T> {
 
 pub trait LogicalResource {
     type Descriptor: LogicalResourceDescriptor;
+
+    fn id(&self) -> usize;
+
+    fn from_descriptor(descriptor: <Self as LogicalResource>::Descriptor) -> Self;
 }
 
 pub trait LogicalResourceDescriptor {
     type Resource: LogicalResource;
+
+    fn to_resource(self) -> Self::Resource;
 }
 
 #[repr(transparent)]
@@ -49,6 +55,7 @@ impl CombinedImageSampler {
 }
 
 pub struct BufferHandle {
+    pub(crate) id: usize,
     _private: (),
 }
 
@@ -60,6 +67,14 @@ impl BufferHandle {
 
 impl LogicalResource for BufferHandle {
     type Descriptor = BufferDesc;
+
+    fn from_descriptor(descriptor: <Self as LogicalResource>::Descriptor) -> Self {
+        todo!()
+    }
+
+    fn id(&self) -> usize {
+        self.id
+    }
 }
 
 pub struct BufferDesc {
@@ -92,9 +107,14 @@ impl BufferDesc {
 
 impl LogicalResourceDescriptor for BufferDesc {
     type Resource = BufferHandle;
+
+    fn to_resource(self) -> Self::Resource {
+        todo!()
+    }
 }
 
 pub struct Res<T> {
+    pub(crate) id: usize,
     _marker: PhantomData<T>,
 }
 impl<T> Copy for Res<T> {}
@@ -105,12 +125,21 @@ impl<T> Clone for Res<T> {
 }
 
 impl<T> Res<T> {
-    pub fn persist(self, handle: &Persistent<T>) -> Self {
-        todo!()
+    pub(crate) unsafe fn from_idx(id: usize) -> Self {
+        Self {
+            id,
+            _marker: PhantomData,
+        }
     }
 }
 
 pub trait ResourceUsage {}
+
+pub(crate) struct UsageInfo {}
+
+pub(crate) fn get_usage(description: impl ResourceUsage) -> UsageInfo {
+    todo!()
+}
 
 pub enum BufferUsageType {
     ShaderRead,
@@ -145,17 +174,30 @@ impl BufferUsage {
 impl ResourceUsage for BufferUsage {}
 
 pub struct ImageHandle {
+    pub(crate) id: usize,
     _private: (),
 }
 
 impl LogicalResource for ImageHandle {
     type Descriptor = ImageDesc;
+
+    fn id(&self) -> usize {
+        self.id
+    }
+
+    fn from_descriptor(descriptor: <Self as LogicalResource>::Descriptor) -> Self {
+        todo!()
+    }
 }
 
 pub struct ImageDesc {}
 
 impl LogicalResourceDescriptor for ImageDesc {
     type Resource = ImageHandle;
+
+    fn to_resource(self) -> Self::Resource {
+        todo!()
+    }
 }
 
 impl ImageDesc {
@@ -193,5 +235,9 @@ impl ImageUsage {
         Self {
             usage: ImageUsageType::SampledRead,
         }
+    }
+
+    pub fn persist(self, handle: &Persistent<ImageHandle>) -> Self {
+        todo!()
     }
 }

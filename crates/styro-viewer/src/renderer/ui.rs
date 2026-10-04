@@ -99,12 +99,10 @@ impl UiRenderer {
             if let Some(_) = update.pos {
                 let (persist, _) = self.textures.get(&id).unwrap();
                 let mut texture_update_pass = frame.new_pass("ui texture update");
-                let texture = texture_update_pass
-                    .output_ref(
-                        ImageDesc::sampled_2d(size[0], size[1], rhi::Format::R8G8B8A8_Srgb),
-                        ImageUsage::transfer(),
-                    )
-                    .persist(&persist);
+                let texture = texture_update_pass.output_ref(
+                    ImageDesc::sampled_2d(size[0], size[1], rhi::Format::R8G8B8A8_Srgb),
+                    ImageUsage::transfer().persist(&persist),
+                );
 
                 texture_update_pass.build(move |mut ctx| {
                     let egui::ImageData::Color(data) = update.image;
@@ -114,12 +112,10 @@ impl UiRenderer {
                 // Brand new texture
                 let mut texture_upload_pass = frame.new_pass("ui texture upload");
                 let persist = Persistent::new();
-                let texture = texture_upload_pass
-                    .output_ref(
-                        ImageDesc::sampled_2d(size[0], size[1], rhi::Format::R8G8B8A8_Srgb),
-                        ImageUsage::transfer(),
-                    )
-                    .persist(&persist);
+                let texture = texture_upload_pass.output_ref(
+                    ImageDesc::sampled_2d(size[0], size[1], rhi::Format::R8G8B8A8_Srgb),
+                    ImageUsage::transfer().persist(&persist),
+                );
 
                 self.textures.insert(id, (persist, texture));
 
@@ -151,7 +147,7 @@ impl UiRenderer {
                         BufferUsage::write(),
                     );
 
-                    upload_pass.build(move |ctx| {
+                    upload_pass.build(move |mut ctx| {
                         ctx.copy_to_buffer(vertex_buf, mesh.vertices.as_slice());
                         ctx.copy_to_buffer(index_buf, mesh.indices.as_slice());
                     });
