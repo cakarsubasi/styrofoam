@@ -6,7 +6,7 @@ use styro_rendergraph::resource::{
     BufferDesc, BufferUsage, CombinedImageSampler, GpuPtr, ImageDesc, ImageHandle, ImageUsage,
     Persistent, Res,
 };
-use styro_rendergraph::{Attachment, Frame, Load};
+use styro_rendergraph::{Attachment, Frame, Getter as _, Load};
 use styro_rhi::{self as rhi};
 
 pub struct UiData {
@@ -43,7 +43,7 @@ pub struct UiRenderer {
 
 impl UiRenderer {
     pub fn new(device: &mut rhi::Device) -> Self {
-        let mut spv = File::open("egui.spv").unwrap();
+        let mut spv = File::open("res/spirv/egui.spv").unwrap();
         let text = rhi::read_spv(&mut spv).unwrap();
 
         // TODO: simpler initialization
