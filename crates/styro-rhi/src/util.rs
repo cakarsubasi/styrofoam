@@ -5,6 +5,11 @@ pub struct ResourceHeapPtr {
 }
 
 impl ResourceHeapPtr {
+    pub unsafe fn new(device: &rhi::Device, descriptor_heap_ptr: rhi::GpuPtr) -> Self {
+        let cpu = device.buffer_host_addr(descriptor_heap_ptr);
+        let gpu = device.buffer_device_addr(descriptor_heap_ptr);
+    }
+
     pub fn host_address(&self) -> *mut ImageDescriptor {
         self.cpu
     }

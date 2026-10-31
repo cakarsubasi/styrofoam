@@ -2,6 +2,8 @@ use std::marker::PhantomData;
 
 use styro_rhi as rhi;
 
+use crate::GraphResources;
+
 pub struct Persistent<T> {
     _marker: PhantomData<fn() -> T>,
 }
@@ -25,7 +27,11 @@ pub trait LogicalResource {
 pub trait LogicalResourceDescriptor {
     type Resource: LogicalResource;
 
-    fn to_resource(self) -> Self::Resource;
+    fn to_resource(
+        self,
+        device: &mut rhi::Device,
+        allocator: &mut GraphResources,
+    ) -> Self::Resource;
 }
 
 #[repr(transparent)]
@@ -39,6 +45,12 @@ pub struct GpuPtr<T: bytemuck::NoUninit> {
 #[derive(bytemuck::NoUninit, Clone, Copy)]
 pub struct Sampler {
     id: u32,
+}
+
+impl Sampler {
+    pub(crate) unsafe fn from_idx(id: u32) -> Self {
+        Self { id }
+    }
 }
 
 #[repr(C)]
@@ -56,12 +68,19 @@ impl CombinedImageSampler {
 
 pub struct BufferHandle {
     pub(crate) id: usize,
-    _private: (),
+    pub(crate) addr: u64,
 }
 
 impl BufferHandle {
+    pub fn new(id: usize, addr: u64) -> Self {
+        Self { id, addr }
+    }
+
     pub fn ptr<T: bytemuck::NoUninit>(&self) -> GpuPtr<T> {
-        todo!()
+        GpuPtr {
+            addr: self.addr,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -73,7 +92,7 @@ impl LogicalResource for BufferHandle {
     }
 
     fn id(&self) -> usize {
-        self.id
+        todo!()
     }
 }
 
@@ -108,8 +127,12 @@ impl BufferDesc {
 impl LogicalResourceDescriptor for BufferDesc {
     type Resource = BufferHandle;
 
-    fn to_resource(self) -> Self::Resource {
-        todo!()
+    fn to_resource(
+        self,
+        device: &mut rhi::Device,
+        resources: &mut GraphResources,
+    ) -> Self::Resource {
+        resources.new_buffer(device, &self)
     }
 }
 
@@ -131,6 +154,27 @@ impl<T> Res<T> {
             _marker: PhantomData,
         }
     }
+}
+
+enum PassProvenance {
+    Pass(usize),
+    External,
+}
+
+enum ResourceTy {
+    Buffer(usize),
+    Image(usize),
+}
+
+struct BufferData {
+    
+}
+
+struct ResMetaData {
+    // resource type
+    output_pass_id: PassProvenance,
+    resource_id: ResourceTy,
+    persistent_id: Option<usize>,
 }
 
 pub trait ResourceUsage {}
@@ -175,7 +219,12 @@ impl ResourceUsage for BufferUsage {}
 
 pub struct ImageHandle {
     pub(crate) id: usize,
-    _private: (),
+}
+
+impl ImageHandle {
+    pub(crate) unsafe fn from_idx(id: usize) -> Self {
+        Self { id }
+    }
 }
 
 impl LogicalResource for ImageHandle {
@@ -195,8 +244,12 @@ pub struct ImageDesc {}
 impl LogicalResourceDescriptor for ImageDesc {
     type Resource = ImageHandle;
 
-    fn to_resource(self) -> Self::Resource {
-        todo!()
+    fn to_resource(
+        self,
+        device: &mut rhi::Device,
+        resources: &mut GraphResources,
+    ) -> Self::Resource {
+        resources.new_image(device, &self)
     }
 }
 

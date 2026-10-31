@@ -46,7 +46,7 @@ use winit::raw_window_handle::RawWindowHandle;
 use crate::renderer::ui::UiData;
 use crate::renderer::ui::UiRenderer;
 
-mod ui;
+pub mod ui;
 
 pub struct Renderer {
     device: Device,
@@ -62,7 +62,7 @@ pub struct Renderer2 {
 }
 
 impl Renderer2 {
-    fn new(raw_display_handle: RawDisplayHandle, raw_window_handle: RawWindowHandle) -> Self {
+    pub fn new(raw_display_handle: RawDisplayHandle, raw_window_handle: RawWindowHandle) -> Self {
         let mut render_graph = RenderGraph::new(raw_display_handle, raw_window_handle);
 
         let persistent_renderers = PersistentRenderers {
@@ -75,7 +75,7 @@ impl Renderer2 {
         }
     }
 
-    fn run(&mut self, ui_data: UiData) {
+    pub fn run(&mut self, ui_data: UiData) {
         let mut frame = self.render_graph.new_frame();
 
         let swapchain_image = frame.swapchain_image();

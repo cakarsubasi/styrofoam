@@ -1,5 +1,5 @@
 use egui_winit::create_window;
-use styro_viewer::renderer::Renderer;
+use styro_viewer::renderer::{Renderer, Renderer2, ui::UiData};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -18,12 +18,11 @@ fn main() {
 struct App {
     initialized: bool,
     app_context: Option<AppContext>,
-    renderer: Option<Renderer>,
+    renderer: Option<Renderer2>,
 }
 
 struct AppContext {
     gui_context: egui_winit::State,
-    //ui_renderer: UiRenderer,
     window: winit::window::Window,
 }
 
@@ -51,7 +50,7 @@ impl ApplicationHandler for App {
                 .as_raw();
             let raw_window_handle = window.window_handle().expect("No window handle").as_raw();
 
-            let renderer = unsafe { Renderer::new(raw_display_handle, raw_window_handle) };
+            let renderer = Renderer2::new(raw_display_handle, raw_window_handle);
             let viewport_id = gui_ctx.viewport_id();
             let gui_context =
                 egui_winit::State::new(gui_ctx, viewport_id, &window, None, None, None);
@@ -90,25 +89,25 @@ impl ApplicationHandler for App {
                     ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
                 let textures_delta = full_output.textures_delta;
 
-                //app_context.ui_renderer.update(
-                //    UiData {
-                //        triangles: clipped_primitives,
-                //        textures: textures_delta,
-                //    },
-                //    renderer,
-                //);
-
+                let ui_data = UiData {
+                    triangles: clipped_primitives,
+                    textures: textures_delta,
+                };
                 if let Some(renderer) = renderer {
-                    if let Err(err) = renderer.request_redraw() {
-                        // Window resized, minimized, etc.
-                        renderer.recreate_swapchain();
-                        eprintln!("{:?}", err);
-                    } else {
-                        app_context.window.request_redraw();
-                    }
-                } else {
-                    app_context.window.request_redraw();
+                    renderer.run(ui_data);
                 }
+
+                //if let Some(renderer) = renderer {
+                //    if let Err(err) = renderer.request_redraw() {
+                //        // Window resized, minimized, etc.
+                //        renderer.recreate_swapchain();
+                //        eprintln!("{:?}", err);
+                //    } else {
+                //        app_context.window.request_redraw();
+                //    }
+                //} else {
+                //    app_context.window.request_redraw();
+                //}
 
                 app_context
                     .gui_context
