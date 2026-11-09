@@ -235,6 +235,15 @@ pub enum ColorSpace {
     BT2020Linear,
 }
 
+/// Surface format
+///
+/// A swapchain must be created with a combination returned by [SwapchainDeviceRHI::enumerate_surface_formats]
+#[derive(Clone, Copy)]
+pub struct SurfaceFormat {
+    pub format: Format,
+    pub color_space: ColorSpace,
+}
+
 /// Swapchain creation info.
 ///
 /// # Valid usage
@@ -266,6 +275,14 @@ pub struct SwapchainInfo {
 pub trait SwapchainDeviceRHI {
     type Swapchain: SwapchainRHI;
     type Queue: QueueRHI;
+
+    ///Enumerate supported surface formats for this window
+    /// 
+    /// One of the formats returned from this must be passed to [Self::create_swapchain].
+    /// 
+    /// # Valid usage:
+    /// - A swapchain for the given `surface` must not already exist.
+    fn enumerate_surface_formats(&self, surface: &WindowSystemData) -> Vec<SurfaceFormat>;
 
     /// Create a swapchain and a surface
     ///

@@ -24,6 +24,7 @@ pub(crate) struct Instance {
     debug_messenger: vk::DebugUtilsMessengerEXT,
 
     pub(super) _surface_loader: khr::surface::Instance,
+    pub(super) surface_capabilities2_loader: khr::get_surface_capabilities2::Instance,
 }
 
 type QueueFamilyIndex = u32;
@@ -262,7 +263,10 @@ impl Instance {
             let debug_utils_loader = ext::debug_utils::Instance::load(&entry, &instance);
             let debug_messenger = create_debug_messenger(&debug_utils_loader);
 
-            let _surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
+            let surface_loader = ash::khr::surface::Instance::load(&entry, &instance);
+
+            let surface_capabilities2_loader =
+                ash::khr::get_surface_capabilities2::Instance::load(&entry, &instance);
 
             Self {
                 entry: ManuallyDrop::new(entry),
@@ -271,7 +275,8 @@ impl Instance {
                 debug_utils_loader,
                 debug_messenger,
 
-                _surface_loader,
+                _surface_loader: surface_loader,
+                surface_capabilities2_loader,
             }
         }
     }

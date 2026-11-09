@@ -850,6 +850,48 @@ impl SwapchainDeviceRHI for Device {
             Ok(swapchain)
         }
     }
+
+    fn enumerate_surface_formats(&self, surface: &WindowSystemData) -> Vec<SurfaceFormat> {
+        unsafe {
+            let surface = self
+                .handles
+                .instance
+                .create_surface(surface.display_handle, surface.window_handle);
+
+            let surface_info = vk::PhysicalDeviceSurfaceInfo2KHR::default().surface(surface.inner);
+
+            let loader = &self.handles.instance.surface_capabilities2_loader;
+
+            let len = loader
+                .get_physical_device_surface_formats2_len(self.handles.pdevice, &surface_info)
+                .unwrap();
+
+            let mut formats = vec![vk::SurfaceFormat2KHR::default(); len];
+
+            loader
+                .get_physical_device_surface_formats2(
+                    self.handles.pdevice,
+                    &surface_info,
+                    &mut formats,
+                )
+                .unwrap();
+
+            formats
+                .iter()
+                .filter_map(|format| {
+                    let color_space = format.surface_format.color_space.try_into().ok()?;
+                    let format = Format::from(format.surface_format.format);
+                    if matches!(format, Format::Undefined) {
+                        return None;
+                    }
+                    Some(SurfaceFormat {
+                        format,
+                        color_space,
+                    })
+                })
+                .collect()
+        }
+    }
 }
 
 pub struct Queue {
