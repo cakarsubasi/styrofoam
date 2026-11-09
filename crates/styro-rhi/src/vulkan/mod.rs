@@ -8,6 +8,8 @@ mod debug;
 pub mod device;
 /// The instance handle and constructors for handles obtained from the instance
 pub(crate) mod instance;
+/// Queues and their command pools
+pub mod queue;
 /// Semaphores
 pub mod semaphore;
 /// Swapchain, surface, and presentation related functionality
