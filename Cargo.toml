@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*",
+"crates/styro-rhi/examples/*"
+]
 
 [workspace.dependencies]
 styro-shader-tools = { path = "crates/styro-shader-tools" }
