@@ -306,8 +306,6 @@ impl Instance {
             // Probably won't use this because of such narrow support
             // khr::unified_image_layouts::NAME.as_ptr(), // Eliminates need for most layout transitions. Poor support outside Nvidia.
             // ext::mesh_shader::NAME.as_ptr(), // mesh shaders, weeee
-            #[cfg(any(target_os = "macos", target_os = "ios"))]
-            ash::khr::portability_subset::NAME.as_ptr(),
         ];
         if device_features.descriptor_heap {
             enabled_extension_names.push(ext::descriptor_heap::NAME.as_ptr()); // replace descriptor indexing with heaps
