@@ -186,13 +186,38 @@ impl Instance {
     }
 }
 
+fn load_vulkan_entry() -> ash::Entry {
+    let err = match unsafe { ash::Entry::load() } {
+        Ok(entry) => return entry,
+        Err(err) => err,
+    };
+
+    // We shall just assume you are reasonable enough to have Vulkan installed on the system
+    #[cfg(target_os = "macos")]
+    {
+        let mut candidates = Vec::new();
+        if let Some(sdk) = std::env::var_os("VULKAN_SDK") {
+            candidates.push(std::path::PathBuf::from(sdk).join("lib/libvulkan.dylib"));
+        }
+        candidates.push("/usr/local/lib/libvulkan.dylib".into());
+        candidates.push("/opt/homebrew/lib/libvulkan.dylib".into());
+
+        for path in candidates {
+            if let Ok(entry) = unsafe { ash::Entry::load_from(&path) } {
+                return entry;
+            }
+        }
+    }
+    panic!("Failed to load Vulkan: {err:?}");
+}
+
 impl Instance {
     pub fn new() -> Self {
         Self::new_with_presentation(WindowSystem::None)
     }
 
     pub fn new_with_presentation(windowing_system: WindowSystem) -> Self {
-        let entry = unsafe { ash::Entry::load().expect("Failed to load Vulkan") };
+        let entry = load_vulkan_entry();
         let app_name = c"Styro RHI";
 
         let mut extension_names = enumerate_required_windowing_extensions(windowing_system)
