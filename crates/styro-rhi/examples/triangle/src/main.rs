@@ -1,5 +1,3 @@
-use std::fs::File;
-
 use styro_rhi::{
     self as rhi, CommandRHI as _, DeviceRHI as _, QueueRHI as _, SwapchainCommandRHI as _,
     SwapchainDeviceRHI, SwapchainRHI as _,
@@ -22,7 +20,7 @@ struct App {
 
 struct Handles {
     // renderer handles
-    _window: winit::window::Window,
+    window: winit::window::Window,
     _device: rhi::Device,
     queue: rhi::Queue,
     swapchain: rhi::Swapchain,
@@ -51,10 +49,7 @@ impl ApplicationHandler for App {
 
             let mut device = rhi::create_device(&rhi::DeviceCreateInfo {
                 device_idx: 0,
-                device_features: rhi::DeviceFeatures {
-                    dynamic_blend_state: true,
-                    ..Default::default()
-                },
+                device_features: rhi::DeviceFeatures::default(),
                 presentation: Some(raw_display_handle.into()),
             });
 
@@ -80,8 +75,8 @@ impl ApplicationHandler for App {
 
             let semaphore = device.create_semaphore(0);
 
-            let mut spv = File::open("triangle.spv").unwrap();
-            let text = rhi::read_spv(&mut spv).unwrap();
+            let spv = include_bytes!("../triangle.spv");
+            let text = rhi::read_spv(&mut std::io::Cursor::new(spv)).unwrap();
             let pipeline = unsafe {
                 device.create_graphics_pipeline(
                     &rhi::ShaderIR {
@@ -95,20 +90,24 @@ impl ApplicationHandler for App {
                     &rhi::RasterDescription {
                         color_formats: &[rhi::Format::R8G8B8A8_Srgb],
                         cull: rhi::Cull::NONE,
+                        blend_state: None,
                         ..Default::default()
                     },
                 )
             };
 
             self.handles = Some(Handles {
-                _window: window,
+                window,
                 _device: device,
                 queue,
                 swapchain,
                 semaphore,
                 pipeline,
                 frame_index: 1,
-            })
+            });
+            if let Some(h) = &self.handles {
+                h.window.request_redraw();
+            }
         }
     }
 
@@ -133,7 +132,7 @@ impl ApplicationHandler for App {
                     let command_pool = *frame_index % FRAMES_IN_FLIGHT;
 
                     if *frame_index > FRAMES_IN_FLIGHT {
-                        semaphore.wait(*frame_index)
+                        semaphore.wait(*frame_index - FRAMES_IN_FLIGHT)
                     }
                     let swapchain_image = swapchain.acquire_next_image().unwrap();
 
@@ -154,8 +153,11 @@ impl ApplicationHandler for App {
                     command_buffer.signal_after(rhi::Stage::BottomOfPipe, &semaphore, *frame_index);
 
                     unsafe { queue.submit(&[command_buffer]).unwrap() };
+                    handles.window.pre_present_notify();
                     swapchain.present(swapchain_image).unwrap();
                     *frame_index += 1;
+
+                    handles.window.request_redraw();
                 }
             }
             _ => {}
