@@ -520,7 +520,9 @@ impl DeviceRHI for Device {
             vk::DynamicState::COLOR_BLEND_EQUATION_EXT,
             vk::DynamicState::COLOR_WRITE_MASK_EXT,
         ];
-        let dynamic_states = if description.blend_state.is_none() {
+        let dynamic_blending = self.handles.extended_dynamic_state3.is_some();
+
+        let dynamic_states = if dynamic_blending {
             dynamic_states.as_slice()
         } else {
             &dynamic_states[0..7]
@@ -568,16 +570,15 @@ impl DeviceRHI for Device {
                 .dst_color_blend_factor(blend.dst_color_factor.into())
                 .alpha_blend_op(blend.alpha_op.into())
                 .src_alpha_blend_factor(blend.src_alpha_factor.into())
-                .dst_alpha_blend_factor(blend.dst_alpha_factor.into())]
+                .dst_alpha_blend_factor(blend.dst_alpha_factor.into())
+                .color_write_mask(vk::ColorComponentFlags::RGBA)]
         } else {
-            [vk::PipelineColorBlendAttachmentState::default()]
+            [vk::PipelineColorBlendAttachmentState::default()
+                .color_write_mask(vk::ColorComponentFlags::RGBA)]
         };
 
-        let color_blend_state = if let Some(_) = description.blend_state {
-            vk::PipelineColorBlendStateCreateInfo::default()
-                .logic_op_enable(true)
-                .logic_op(vk::LogicOp::COPY)
-                .attachments(&color_blend_attachments)
+        let color_blend_state = if !dynamic_blending {
+            vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments)
         } else {
             vk::PipelineColorBlendStateCreateInfo::default()
         };
@@ -675,7 +676,10 @@ impl DeviceRHI for Device {
             vk::DynamicState::COLOR_BLEND_EQUATION_EXT,
             vk::DynamicState::COLOR_WRITE_MASK_EXT,
         ];
-        let dynamic_states = if description.blend_state.is_none() {
+
+        let dynamic_blending = self.handles.extended_dynamic_state3.is_some();
+
+        let dynamic_states = if dynamic_blending {
             dynamic_states.as_slice()
         } else {
             &dynamic_states[0..7]
@@ -728,11 +732,8 @@ impl DeviceRHI for Device {
             [vk::PipelineColorBlendAttachmentState::default()]
         };
 
-        let color_blend_state = if let Some(_) = description.blend_state {
-            vk::PipelineColorBlendStateCreateInfo::default()
-                .logic_op_enable(true)
-                .logic_op(vk::LogicOp::COPY)
-                .attachments(&color_blend_attachments)
+        let color_blend_state = if !dynamic_blending {
+            vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments)
         } else {
             vk::PipelineColorBlendStateCreateInfo::default()
         };
