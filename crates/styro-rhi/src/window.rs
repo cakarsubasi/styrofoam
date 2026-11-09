@@ -227,6 +227,12 @@ impl WindowSystemData {
 pub enum ColorSpace {
     /// ITU-R Rec. 709 primaries with 2.2 Gamma. Supported everywhere.
     SrgbNonlinear,
+    /// "P3 D65". SMPTE EG 432-1 with 6500K white point. HDR displays only.
+    DisplayP3NonLinear,
+    /// SMPTE EG 432-1 with 6300K white point. HDR displays only.
+    DCIP3NonLinear,
+    /// ITU-R Recommendation BT.2020 with 6500K white point. HDR displays only.
+    BT2020Linear,
 }
 
 /// Swapchain creation info.

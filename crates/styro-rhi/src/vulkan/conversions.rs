@@ -236,6 +236,9 @@ impl From<ColorSpace> for vk::ColorSpaceKHR {
     fn from(value: ColorSpace) -> Self {
         match value {
             ColorSpace::SrgbNonlinear => vk::ColorSpaceKHR::SRGB_NONLINEAR,
+            ColorSpace::DisplayP3NonLinear => vk::ColorSpaceKHR::DISPLAY_P3_NONLINEAR_EXT,
+            ColorSpace::DCIP3NonLinear => vk::ColorSpaceKHR::DCI_P3_NONLINEAR_EXT,
+            ColorSpace::BT2020Linear => vk::ColorSpaceKHR::BT2020_LINEAR_EXT,
         }
     }
 }
