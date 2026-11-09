@@ -344,7 +344,7 @@ impl Instance {
         }
 
         let vk10_features = vk::PhysicalDeviceFeatures::default()
-            .pipeline_statistics_query(true)
+            .pipeline_statistics_query(false)
             .depth_bias_clamp(true)
             .dual_src_blend(true)
             .sampler_anisotropy(true);
