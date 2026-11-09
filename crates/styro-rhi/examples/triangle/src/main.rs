@@ -53,25 +53,30 @@ impl ApplicationHandler for App {
                 presentation: Some(raw_display_handle.into()),
             });
 
+            let window_data = unsafe {
+                rhi::WindowSystemData::from_raw_handles(raw_display_handle, raw_window_handle)
+            };
+
+            let surface_formats = device.enumerate_surface_formats(&window_data);
+            let surface_format = surface_formats
+                .iter()
+                .find(|format| matches!(format.color_space, rhi::ColorSpace::SrgbNonlinear))
+                .expect("No SDR capable surface.");
+
             let queue = device.create_queue(rhi::QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
 
-            let swapchain = unsafe {
-                device
-                    .create_swapchain(
-                        &queue,
-                        &rhi::WindowSystemData::from_raw_handles(
-                            raw_display_handle,
-                            raw_window_handle,
-                        ),
-                        &rhi::SwapchainInfo {
-                            size: FRAMES_IN_FLIGHT as u32,
-                            format: rhi::Format::R8G8B8A8_Srgb,
-                            color_space: styro_rhi::ColorSpace::SrgbNonlinear,
-                            preferred_extent: [800, 600],
-                        },
-                    )
-                    .unwrap()
-            };
+            let swapchain = device
+                .create_swapchain(
+                    &queue,
+                    &window_data,
+                    &rhi::SwapchainInfo {
+                        size: FRAMES_IN_FLIGHT as u32,
+                        format: surface_format.format,
+                        color_space: surface_format.color_space,
+                        preferred_extent: [800, 600],
+                    },
+                )
+                .unwrap();
 
             let semaphore = device.create_semaphore(0);
 
@@ -88,7 +93,7 @@ impl ApplicationHandler for App {
                         entry: c"triangle_frag",
                     },
                     &rhi::RasterDescription {
-                        color_formats: &[rhi::Format::R8G8B8A8_Srgb],
+                        color_formats: &[surface_format.format],
                         cull: rhi::Cull::NONE,
                         blend_state: None,
                         ..Default::default()
