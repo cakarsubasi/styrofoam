@@ -242,3 +242,18 @@ impl From<ColorSpace> for vk::ColorSpaceKHR {
         }
     }
 }
+
+impl TryFrom<vk::ColorSpaceKHR> for ColorSpace {
+    /// The unsupported Vulkan color space.
+    type Error = vk::ColorSpaceKHR;
+
+    fn try_from(value: vk::ColorSpaceKHR) -> Result<Self, Self::Error> {
+        match value {
+            vk::ColorSpaceKHR::SRGB_NONLINEAR => Ok(ColorSpace::SrgbNonlinear),
+            vk::ColorSpaceKHR::DISPLAY_P3_NONLINEAR_EXT => Ok(ColorSpace::DisplayP3NonLinear),
+            vk::ColorSpaceKHR::DCI_P3_NONLINEAR_EXT => Ok(ColorSpace::DCIP3NonLinear),
+            vk::ColorSpaceKHR::BT2020_LINEAR_EXT => Ok(ColorSpace::BT2020Linear),
+            unsupported => Err(unsupported),
+        }
+    }
+}
