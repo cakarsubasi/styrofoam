@@ -224,6 +224,7 @@ impl Instance {
             .map_or(vec![], |slice| slice.to_vec());
         extension_names.push(ext::debug_utils::NAME.as_ptr());
         extension_names.push(khr::surface_maintenance1::NAME.as_ptr());
+        extension_names.push(khr::get_surface_capabilities2::NAME.as_ptr());
 
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         {
