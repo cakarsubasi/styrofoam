@@ -82,25 +82,27 @@ impl CommandBuffer {
             return;
         }
         unsafe {
-            match (&self.device.descriptor_heap, &self.device.push_descriptor) {
+            match (
+                &self.device.descriptor_heap,
+                &self.device.descriptor_indexing,
+            ) {
                 (None, None) => unreachable!(
-                    "If neither are enabled, push descriptors should still be set with an empty descriptor layout"
+                    "If descriptor heaps are not enabled, descriptor indexing data should exist"
                 ),
-                (None, Some(pd)) => {
-                    let (layout, stage_flags) = if self.render_pass_state.is_some() {
-                        (
-                            pd.graphics_pipeline_layout,
-                            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                        )
-                    } else {
-                        (pd.compute_pipeline_layout, vk::ShaderStageFlags::COMPUTE)
-                    };
+                (None, Some(descriptor_indexing_data)) => {
+                    let stage_flags = vk::ShaderStageFlags::VERTEX
+                        | vk::ShaderStageFlags::FRAGMENT
+                        | vk::ShaderStageFlags::COMPUTE;
 
-                    self.device
-                        .inner
-                        .cmd_push_constants(self.inner, layout, stage_flags, 0, data);
+                    self.device.inner.cmd_push_constants(
+                        self.inner,
+                        descriptor_indexing_data.pipeline_layout,
+                        stage_flags,
+                        0,
+                        data,
+                    );
                 }
-                (Some(descriptor_heap), None) => {
+                (Some(descriptor_heap), _) => {
                     let props = self
                         .device
                         .descriptor_heap_props
@@ -116,10 +118,6 @@ impl CommandBuffer {
                         .data(vk::HostAddressRangeConstEXT::default().address(data));
 
                     descriptor_heap.cmd_push_data(self.inner, &push_data_info);
-                }
-                (Some(_), Some(_)) => {
-                    // I really don't care enough to support this case right now
-                    panic!();
                 }
             }
         }

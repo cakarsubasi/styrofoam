@@ -28,7 +28,7 @@ use crate::*;
 
 pub(super) struct DescriptorIndexingData {
     descriptor_pool: vk::DescriptorPool,
-    descriptor_sets: [vk::DescriptorSet; 2],
+    pub descriptor_sets: [vk::DescriptorSet; 2],
     descriptor_set_layouts: [vk::DescriptorSetLayout; 2],
     pub pipeline_layout: vk::PipelineLayout,
 }
@@ -410,6 +410,18 @@ impl Device {
         &self.handles.inner
     }
 
+    /// Pipeline layout for new pipelines. With descriptor heaps no layout is needed,
+    /// otherwise the descriptor indexing layout is used.
+    fn get_pipeline_layout(&self) -> vk::PipelineLayout {
+        if self.handles.descriptor_heap.is_some() {
+            vk::PipelineLayout::null()
+        } else if let Some(di) = &self.handles.descriptor_indexing {
+            di.pipeline_layout
+        } else {
+            vk::PipelineLayout::null()
+        }
+    }
+
     pub fn get_descriptor_heap_properties(&self) -> DescriptorHeapProps {
         self.handles
             .descriptor_heap_props
@@ -543,7 +555,7 @@ impl DeviceRHI for Device {
         let create_infos = [vk::ComputePipelineCreateInfo::default()
             .flags(vk::PipelineCreateFlags::empty())
             .stage(stage)
-            .layout(vk::PipelineLayout::null())];
+            .layout(self.get_pipeline_layout())];
 
         unsafe {
             let pipelines = self
@@ -672,13 +684,7 @@ impl DeviceRHI for Device {
             },
         );
 
-        let pipeline_layout = if self.handles.descriptor_heap.is_some() {
-            vk::PipelineLayout::null()
-        } else if let Some(pd) = &self.handles.push_descriptor {
-            pd.graphics_pipeline_layout
-        } else {
-            vk::PipelineLayout::null()
-        };
+        let pipeline_layout = self.get_pipeline_layout();
 
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .flags(vk::PipelineCreateFlags::empty())
@@ -831,13 +837,7 @@ impl DeviceRHI for Device {
             },
         );
 
-        let pipeline_layout = if self.handles.descriptor_heap.is_some() {
-            vk::PipelineLayout::null()
-        } else if let Some(pd) = &self.handles.push_descriptor {
-            pd.graphics_pipeline_layout
-        } else {
-            vk::PipelineLayout::null()
-        };
+        let pipeline_layout = self.get_pipeline_layout();
 
         let graphics_pipeline_create_info = vk::GraphicsPipelineCreateInfo::default()
             .flags(vk::PipelineCreateFlags::empty())

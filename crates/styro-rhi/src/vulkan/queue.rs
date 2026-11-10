@@ -253,6 +253,23 @@ impl QueueRHI for Queue {
                 .begin_command_buffer(command_buffer, begin_info)
                 .unwrap();
 
+            if device.descriptor_heap.is_none() {
+                if let Some(descriptor_indexing_data) = &device.descriptor_indexing {
+                    let bind_info = vk::BindDescriptorSetsInfo::default()
+                        .stage_flags(
+                            vk::ShaderStageFlags::VERTEX
+                                | vk::ShaderStageFlags::FRAGMENT
+                                | vk::ShaderStageFlags::COMPUTE,
+                        )
+                        .layout(descriptor_indexing_data.pipeline_layout)
+                        .first_set(0)
+                        .descriptor_sets(&descriptor_indexing_data.descriptor_sets);
+                    device
+                        .inner
+                        .cmd_bind_descriptor_sets2(command_buffer, &bind_info);
+                }
+            }
+
             Self::CommandBuffer {
                 device,
                 heap: self.heap.upgrade().unwrap(),
