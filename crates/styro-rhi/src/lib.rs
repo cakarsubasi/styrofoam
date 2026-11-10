@@ -844,6 +844,15 @@ pub trait DeviceRHI {
     /// - `sampler` must be a valid [SamplerInfo] structure
     fn write_sampled_image_descriptor(&mut self, idx: usize, image: GpuPtr, sampler: &SamplerInfo);
 
+    /// Write a storage image descriptor to the managed descriptor heap
+    ///
+    /// # Valid usage
+    /// - `idx` must be lower than the maximum number of descriptors
+    /// - `image` must be a storage image
+    /// - `image` must be live
+    /// - `image` must be in the general layout whenever it is accessed through this descriptor
+    fn write_storage_image_descriptor(&mut self, idx: usize, image: GpuPtr);
+
     /// Acquire a submission queue and allocate command buffers
     ///
     /// A queue is where

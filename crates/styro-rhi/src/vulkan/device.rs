@@ -921,6 +921,33 @@ impl DeviceRHI for Device {
             }
         }
     }
+
+    fn write_storage_image_descriptor(&mut self, index: usize, image: GpuPtr) {
+        let device = self.device();
+        let heap = self.heap.read().unwrap();
+        if let Some(ref descriptors) = self.handles.descriptor_indexing {
+            unsafe {
+                let descriptor_set = descriptors.get_storage_image_set();
+                let descriptor_type = vk::DescriptorType::STORAGE_IMAGE;
+
+                let image = heap.ptr_to_image(image);
+                let image_info = [vk::DescriptorImageInfo::default()
+                    // Storage images always use GENERAL layout
+                    .image_layout(vk::ImageLayout::GENERAL)
+                    .image_view(image.view.unwrap())];
+
+                let descriptor_writes = [vk::WriteDescriptorSet::default()
+                    .descriptor_count(1)
+                    .dst_set(descriptor_set)
+                    .dst_binding(0)
+                    .dst_array_element(index as u32)
+                    .descriptor_type(descriptor_type)
+                    .image_info(&image_info)];
+
+                device.update_descriptor_sets(&descriptor_writes, &[]);
+            }
+        }
+    }
 }
 
 impl SwapchainDeviceRHI for Device {
