@@ -888,6 +888,39 @@ impl DeviceRHI for Device {
         heap.write_sampler_descriptor(desc, &mut descriptor);
         descriptor
     }
+
+    fn write_sampled_image_descriptor(
+        &mut self,
+        index: usize,
+        image: GpuPtr,
+        sampler: &SamplerInfo,
+    ) {
+        let device = self.device();
+        let heap = self.heap.read().unwrap();
+        if let Some(ref descriptors) = self.handles.descriptor_indexing {
+            unsafe {
+                let descriptor_set = descriptors.get_sampled_image_set();
+                let descriptor_type = vk::DescriptorType::COMBINED_IMAGE_SAMPLER;
+
+                let sampler = heap.get_or_create_sampler(sampler);
+                let image = heap.ptr_to_image(image);
+                let image_info = [vk::DescriptorImageInfo::default()
+                    .image_layout(image.current_layout.get())
+                    .image_view(image.view.unwrap())
+                    .sampler(sampler)];
+
+                let descriptor_writes = [vk::WriteDescriptorSet::default()
+                    .descriptor_count(1)
+                    .dst_set(descriptor_set)
+                    .dst_binding(0)
+                    .dst_array_element(index as u32)
+                    .descriptor_type(descriptor_type)
+                    .image_info(&image_info)];
+
+                device.update_descriptor_sets(&descriptor_writes, &[]);
+            }
+        }
+    }
 }
 
 impl SwapchainDeviceRHI for Device {

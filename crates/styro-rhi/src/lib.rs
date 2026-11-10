@@ -821,6 +821,7 @@ pub trait DeviceRHI {
     /// Get bytes for an image descriptor
     ///
     /// # Valid usage
+    /// - `descriptor_heap` feature must be enabled
     /// - `image` must be an image
     /// - `image` must be live
     /// - `image` must not be in the undefined layout
@@ -829,8 +830,19 @@ pub trait DeviceRHI {
     /// Get bytes for an immutable sampler descriptor
     ///
     /// # Valid usage
-    /// -`desc` must be a valid [SamplerInfo] structure
+    /// - `descriptor_heap` feature must be enabled
+    /// - `desc` must be a valid [SamplerInfo] structure
     fn get_sampler_descriptor(&self, desc: &SamplerInfo) -> SamplerDescriptor;
+
+    ///Write a sampled image descriptor to the managed descriptor heap
+    ///
+    /// # Valid usage
+    /// - `idx` must be lower than the maximum number of descriptors
+    /// - `image` must be a sampled image
+    /// - `image` must be live
+    /// - `image` must not be in the undefined layout
+    /// - `sampler` must be a valid [SamplerInfo] structure
+    fn write_sampled_image_descriptor(&mut self, idx: usize, image: GpuPtr, sampler: &SamplerInfo);
 
     /// Acquire a submission queue and allocate command buffers
     ///
