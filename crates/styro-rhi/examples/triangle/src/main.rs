@@ -80,7 +80,7 @@ impl ApplicationHandler for App {
 
             let semaphore = device.create_semaphore(0);
 
-            let spv = include_bytes!("../triangle.spv");
+            let spv = include_bytes!(concat!(env!("OUT_DIR"), "/triangle.spv"));
             let text = rhi::read_spv(&mut std::io::Cursor::new(spv)).unwrap();
             let pipeline = unsafe {
                 device.create_graphics_pipeline(
