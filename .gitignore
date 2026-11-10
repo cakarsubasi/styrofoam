@@ -6,3 +6,6 @@
 
 # Zed configuration
 .zed/
+
+# MacOS bullshit
+.DS_store
