@@ -588,64 +588,6 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn push_descriptors(&mut self, images: &[GpuPtr], samplers: &[SamplerInfo], offset: u32) {
-        unsafe {
-            if !images.is_empty() {
-                let heap = self.heap.read().unwrap();
-
-                let image_infos: Vec<_> = images
-                    .iter()
-                    .zip(samplers)
-                    .map(|(image, sampler)| {
-                        let sampler = heap.get_or_create_sampler(sampler);
-                        let image = heap.ptr_to_image(*image);
-                        vk::DescriptorImageInfo::default()
-                            .image_layout(image.current_layout.get())
-                            .image_view(image.view.unwrap())
-                            .sampler(sampler)
-                    })
-                    .collect();
-
-                let descriptor_writes: Vec<_> = image_infos
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, _)| {
-                        vk::WriteDescriptorSet::default()
-                            .descriptor_count(1)
-                            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                            .dst_binding(offset + idx as u32)
-                            .image_info(&image_infos[idx..(idx + 1)])
-                    })
-                    .collect();
-                let bind_point = if self.render_pass_state.is_some() {
-                    vk::PipelineBindPoint::GRAPHICS
-                } else {
-                    vk::PipelineBindPoint::COMPUTE
-                };
-
-                let pipeline_layout = self
-                    .device
-                    .push_descriptor
-                    .as_ref()
-                    .map(|data| {
-                        if self.render_pass_state.is_some() {
-                            data.graphics_pipeline_layout
-                        } else {
-                            data.compute_pipeline_layout
-                        }
-                    })
-                    .expect("Push descriptor is not enabled.");
-                self.device.inner.cmd_push_descriptor_set(
-                    self.inner,
-                    bind_point,
-                    pipeline_layout,
-                    0,
-                    &descriptor_writes,
-                );
-            }
-        }
-    }
-
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */) {
         unsafe {
             // A read after write indicates a true dependency which is the strictest

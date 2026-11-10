@@ -165,108 +165,6 @@ pub struct ShaderIR<'a> {
     pub entry: &'a CStr,
 }
 
-pub(super) struct PushDescriptorData {
-    graphics_descriptor_set_layout: vk::DescriptorSetLayout,
-    pub graphics_pipeline_layout: vk::PipelineLayout,
-    compute_descriptor_set_layout: vk::DescriptorSetLayout,
-    pub compute_pipeline_layout: vk::PipelineLayout,
-}
-
-impl PushDescriptorData {
-    const BINDING_COUNT: usize = 32;
-
-    fn new_empty(device: &ash::Device) -> Self {
-        Self::from_size::<0>(device)
-    }
-
-    fn new(device: &ash::Device) -> Self {
-        Self::from_size::<{ Self::BINDING_COUNT }>(device)
-    }
-
-    fn from_size<const BINDING_SIZE: usize>(device: &ash::Device) -> Self {
-        let graphics_push_constant_range = vk::PushConstantRange::default()
-            .offset(0)
-            .size(256)
-            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT);
-
-        let compute_push_constant_range = vk::PushConstantRange::default()
-            .offset(0)
-            .size(256)
-            .stage_flags(vk::ShaderStageFlags::COMPUTE);
-
-        let mut graphics_bindings = [vk::DescriptorSetLayoutBinding::default()
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .stage_flags(vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT);
-            BINDING_SIZE];
-
-        let mut compute_bindings = [vk::DescriptorSetLayoutBinding::default()
-            .descriptor_count(1)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .stage_flags(vk::ShaderStageFlags::COMPUTE);
-            BINDING_SIZE];
-
-        for i in 0..BINDING_SIZE {
-            graphics_bindings[i].binding = i as u32;
-            compute_bindings[i].binding = i as u32;
-        }
-
-        unsafe {
-            let graphics_descriptor_set_layout = device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::default()
-                        .bindings(&graphics_bindings)
-                        .flags(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR),
-                    None,
-                )
-                .unwrap();
-
-            let graphics_pipeline_layout = device
-                .create_pipeline_layout(
-                    &vk::PipelineLayoutCreateInfo::default()
-                        .push_constant_ranges(&[graphics_push_constant_range])
-                        .set_layouts(&[graphics_descriptor_set_layout]),
-                    None,
-                )
-                .unwrap();
-
-            let compute_descriptor_set_layout = device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::default()
-                        .bindings(&compute_bindings)
-                        .flags(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR),
-                    None,
-                )
-                .unwrap();
-
-            let compute_pipeline_layout = device
-                .create_pipeline_layout(
-                    &vk::PipelineLayoutCreateInfo::default()
-                        .push_constant_ranges(&[compute_push_constant_range])
-                        .set_layouts(&[compute_descriptor_set_layout]),
-                    None,
-                )
-                .unwrap();
-
-            Self {
-                graphics_pipeline_layout,
-                graphics_descriptor_set_layout,
-                compute_pipeline_layout,
-                compute_descriptor_set_layout,
-            }
-        }
-    }
-
-    fn destroy(&mut self, device: &ash::Device) {
-        unsafe {
-            device.destroy_pipeline_layout(self.graphics_pipeline_layout, None);
-            device.destroy_pipeline_layout(self.compute_pipeline_layout, None);
-            device.destroy_descriptor_set_layout(self.graphics_descriptor_set_layout, None);
-            device.destroy_descriptor_set_layout(self.compute_descriptor_set_layout, None);
-        }
-    }
-}
-
 pub(super) struct DeviceHandles {
     pub inner: ash::Device,
     pub instance: Instance,
@@ -279,7 +177,6 @@ pub(super) struct DeviceHandles {
     pub descriptor_heap_props: Option<DescriptorHeapProps>,
     pub extended_dynamic_state3: Option<ext::extended_dynamic_state3::Device>,
     // pub device_address_commands: khr::device_address_commands::Device, // Poor support right now
-    pub push_descriptor: Option<PushDescriptorData>,
     pub descriptor_indexing: Option<DescriptorIndexingData>,
     pub mesh_shader: Option<ext::mesh_shader::Device>,
 }
@@ -301,9 +198,6 @@ impl Drop for DeviceHandles {
     fn drop(&mut self) {
         unsafe {
             // Pipelines have an Arc to DeviceHandles so this is fine
-            if let Some(pd) = &mut self.push_descriptor {
-                pd.destroy(&self.inner);
-            }
             if let Some(descriptor_indexing) = &mut self.descriptor_indexing {
                 descriptor_indexing.destroy(&self.inner);
             }
@@ -366,14 +260,6 @@ impl Device {
                 None
             };
 
-            let push_descriptor = if features.push_descriptor {
-                Some(PushDescriptorData::new(&device))
-            } else if !features.descriptor_heap {
-                Some(PushDescriptorData::new_empty(&device))
-            } else {
-                None
-            };
-
             let descriptor_indexing = Some(DescriptorIndexingData::new(&device));
 
             let mesh_shader = if false {
@@ -392,7 +278,6 @@ impl Device {
                 descriptor_heap: descriptor_heap_loader,
                 descriptor_heap_props: descriptor_heap_props,
                 extended_dynamic_state3,
-                push_descriptor,
                 descriptor_indexing,
                 mesh_shader,
             });
@@ -1106,7 +991,7 @@ impl DescriptorHeap {
         })
     }
 
-    /// For use with VK_KHR_push_descriptor. Take &self and use separate locking just in case. Cache samplers
+    /// Take &self and use separate locking just in case. Cache samplers
     /// since they are immutable and can be reused. They should also be relatively cheap to have and we can
     /// drop them all at once. Probably don't care enough about this path to use LRU or pruning strategies.
     pub(super) fn get_or_create_sampler(&self, info: &SamplerInfo) -> vk::Sampler {

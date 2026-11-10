@@ -142,15 +142,6 @@ impl Instance {
                         .enumerate_device_extension_properties(pdevice)
                         .ok()?;
 
-                    let push_descriptor = extensions
-                        .iter()
-                        .find(|&extension| {
-                            extension
-                                .extension_name_as_c_str()
-                                .is_ok_and(|name| name == khr::push_descriptor::NAME)
-                        })
-                        .is_some();
-
                     let mesh_shader = extensions
                         .iter()
                         .find(|&extension| {
@@ -172,7 +163,6 @@ impl Instance {
                             && extended_dynamic_state3_feature
                                 .extended_dynamic_state3_color_write_mask
                                 != 0,
-                        push_descriptor,
                         mesh_shader,
                     };
 
@@ -330,7 +320,6 @@ impl Instance {
             khr::swapchain_maintenance1::NAME.as_ptr(),
             khr::synchronization2::NAME.as_ptr(),
             khr::dynamic_rendering_local_read::NAME.as_ptr(),
-            khr::push_descriptor::NAME.as_ptr(),
             ext::descriptor_indexing::NAME.as_ptr(),
             khr::maintenance5::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors

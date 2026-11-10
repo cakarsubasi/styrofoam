@@ -1192,11 +1192,6 @@ pub trait CommandRHI {
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 
-    /// Push descriptor updates into the command buffer
-    ///
-    ///
-    fn push_descriptors(&mut self, images: &[GpuPtr], samplers: &[SamplerInfo], offset: u32);
-
     fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
 
     /// Perform an image layout transition

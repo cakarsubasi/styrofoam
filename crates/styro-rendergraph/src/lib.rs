@@ -190,7 +190,6 @@ impl<'graph, 'frame> RenderGraph {
             device_idx: 0,
             device_features: rhi::DeviceFeatures {
                 descriptor_heap: true,
-                push_descriptor: false,
                 dynamic_blend_state: true,
                 mesh_shader: true,
             },

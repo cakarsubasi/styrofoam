@@ -35,12 +35,6 @@ pub struct DeviceFeatures {
     ///
     /// On Vulkan, corresponds to `VK_EXT_descriptor_heap` and `VK_KHR_shader_untyped_pointers`.
     pub descriptor_heap: bool,
-    /// Enable "vanilla bindless" using [crate::CommandRHI::push_descriptors]. This option is simpler
-    /// and more widely supported than `descriptor_heap` but is limited to 32 combined image samplers
-    /// per shader.
-    ///
-    /// On Vulkan, corresponds to `VK_KHR_push_descriptor`.
-    pub push_descriptor: bool,
     /// Enables using [crate::CommandRHI::set_blend_state] instead of baking
     /// blend state inside a [crate::Pipeline].
     ///
