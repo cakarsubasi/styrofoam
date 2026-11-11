@@ -356,6 +356,7 @@ impl Instance {
             .descriptor_binding_storage_image_update_after_bind(true)
             .descriptor_binding_update_unused_while_pending(true)
             .descriptor_binding_variable_descriptor_count(true)
+            .runtime_descriptor_array(true)
             .shader_sampled_image_array_non_uniform_indexing(true)
             .shader_storage_image_array_non_uniform_indexing(true);
         let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
