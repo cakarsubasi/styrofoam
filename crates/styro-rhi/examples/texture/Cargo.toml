@@ -1,0 +1,10 @@
+[package]
+name = "texture"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+styro-rhi.workspace = true
+winit.workspace = true
+image.workspace = true
+bytemuck.workspace = true
