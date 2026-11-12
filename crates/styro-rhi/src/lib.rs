@@ -4,6 +4,8 @@ pub mod debug;
 mod format;
 /// Querying physical devices and device creation
 pub mod instance;
+/// Descriptor heap helpers
+pub mod util;
 /// The Vulkan backend
 mod vulkan;
 /// Window system integration
