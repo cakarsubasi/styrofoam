@@ -1433,8 +1433,11 @@ impl Image {
 
             let memory_req = device.inner.get_image_memory_requirements(image);
 
-            let view = match description.usage {
-                ImageUsage::Attachment => Some(
+            // Attachments always need a view. Without descriptor heaps, basically everything needs a view.
+            let view = if matches!(description.usage, ImageUsage::Attachment)
+                || device.descriptor_heap.is_none()
+            {
+                Some(
                     device
                         .inner
                         .create_image_view(
@@ -1452,8 +1455,9 @@ impl Image {
                             None,
                         )
                         .unwrap(),
-                ),
-                _ => None,
+                )
+            } else {
+                None
             };
 
             let data = AllocatedImageData {
