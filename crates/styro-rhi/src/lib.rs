@@ -1078,6 +1078,26 @@ pub enum Stage {
     MeshShader,
 }
 
+// TODO
+#[allow(dead_code)]
+enum Hazard {
+    None,
+    /// Indirect dispatch/draw buffer write-read hazard
+    ///
+    /// Indicates to the GPU that any indirect dispatches must wait until source writes to indirect buffers
+    /// are made available. You will most likely use this with ([Stage::ComputeShader], [Stage::ComputeShader])
+    /// or ([Stage::ComputeShader], [Stage::DrawIndirect]).
+    IndirectBuffer,
+    /// Descriptor heap write-read hazard
+    ///
+    /// Indicates that the source stage (usually [Stage::ComputeShader]) writes to the descriptor heap.
+    DescriptorHeap,
+    /// Flush all caches
+    ///
+    /// You should probably never use this, but it might be useful to investigate sync issues.
+    AllAccesses,
+}
+
 /// Layout of an image and its resources
 ///
 /// The optimal memory layout of an image will typically depend on what an image is being used for.
