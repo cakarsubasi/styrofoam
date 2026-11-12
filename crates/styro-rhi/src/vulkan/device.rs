@@ -1172,6 +1172,10 @@ impl Drop for DescriptorHeap {
                     HeapOwnedResource::Image(image) => image.free_resources(&self.device),
                 }
             }
+
+            for (_, sampler) in self.sampler_cache.write().unwrap().drain() {
+                self.device.inner.destroy_sampler(sampler, None);
+            }
         }
     }
 }
