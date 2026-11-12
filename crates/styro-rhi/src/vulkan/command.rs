@@ -613,13 +613,23 @@ impl CommandRHI for CommandBuffer {
         layout: ImageLayout,
     ) {
         use vk::AccessFlags2 as vkaf;
-
-        let (src_access_mask, dst_access_mask) = match (before, after) {
-            (Stage::Host, _) => (vkaf::HOST_WRITE, vkaf::empty()),
-            (Stage::Transfer, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
-            (Stage::ColorAttachmentOutput, _) => (vkaf::COLOR_ATTACHMENT_WRITE, vkaf::empty()),
-            (Stage::Blit, _) => (vkaf::TRANSFER_WRITE, vkaf::empty()),
-            (_, _) => (vkaf::empty(), vkaf::empty()),
+        // TODO: use a hazards flag
+        let src_access_mask = match before {
+            Stage::Host => vkaf::HOST_WRITE,
+            Stage::Transfer | Stage::Copy | Stage::Blit => vkaf::TRANSFER_WRITE,
+            Stage::ColorAttachmentOutput => vkaf::COLOR_ATTACHMENT_WRITE,
+            _ => vkaf::empty(),
+        };
+        // The transition must also make the image visible to the consumer
+        let dst_access_mask = match after {
+            Stage::Transfer | Stage::Copy | Stage::Blit => {
+                vkaf::TRANSFER_READ | vkaf::TRANSFER_WRITE
+            }
+            Stage::VertexShader | Stage::FragmentShader | Stage::ComputeShader => {
+                vkaf::SHADER_SAMPLED_READ | vkaf::SHADER_STORAGE_READ
+            }
+            Stage::AllGraphics | Stage::AllCommands => vkaf::MEMORY_READ | vkaf::MEMORY_WRITE,
+            _ => vkaf::empty(),
         };
 
         self.layout_transition_queue.push(LayoutTransition {
