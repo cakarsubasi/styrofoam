@@ -183,7 +183,6 @@ fn load_vulkan_entry() -> ash::Entry {
         Err(err) => err,
     };
 
-    // We shall just assume you are reasonable enough to have Vulkan installed on the system
     #[cfg(target_os = "macos")]
     {
         let mut candidates = Vec::new();
@@ -192,6 +191,12 @@ fn load_vulkan_entry() -> ash::Entry {
         }
         candidates.push("/usr/local/lib/libvulkan.dylib".into());
         candidates.push("/opt/homebrew/lib/libvulkan.dylib".into());
+        // Last resort: the MoltenVK vendored in third-party/. It is loaded
+        // directly rather than through the Vulkan loader.
+        candidates.push(std::path::PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../third-party/MoltenVK/lib/libMoltenVK.dylib"
+        )));
 
         for path in candidates {
             if let Ok(entry) = unsafe { ash::Entry::load_from(&path) } {
@@ -217,9 +222,20 @@ impl Instance {
         extension_names.push(khr::surface_maintenance1::NAME.as_ptr());
         extension_names.push(khr::get_surface_capabilities2::NAME.as_ptr());
 
+        // The Vulkan loader provides portability enumeration, but a driver
+        // loaded directly (e.g. the vendored MoltenVK) does not.
+        let portability_enumeration = unsafe { entry.enumerate_instance_extension_properties(None) }
+            .is_ok_and(|exts| {
+                exts.iter().any(|e| {
+                    e.extension_name_as_c_str() == Ok(ash::khr::portability_enumeration::NAME)
+                })
+            });
+
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         {
-            extension_names.push(ash::khr::portability_enumeration::NAME.as_ptr());
+            if portability_enumeration {
+                extension_names.push(ash::khr::portability_enumeration::NAME.as_ptr());
+            }
             // Enabling this extension is a requirement when using `VK_KHR_portability_subset`
             extension_names.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
         }
@@ -233,7 +249,9 @@ impl Instance {
 
         // There is no MVK support whatsoever right now due to the lack of
         // necessary extensions but we should keep this just in case it is added
-        let create_flags = if cfg!(any(target_os = "macos", target_os = "ios")) {
+        let create_flags = if cfg!(any(target_os = "macos", target_os = "ios"))
+            && portability_enumeration
+        {
             vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
         } else {
             vk::InstanceCreateFlags::default()
