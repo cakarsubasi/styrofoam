@@ -14,8 +14,8 @@ use styro_rhi::Device;
 use styro_rhi::DeviceRHI;
 use styro_rhi::Error;
 use styro_rhi::Format;
+use styro_rhi::GpuImage;
 use styro_rhi::GpuPtr;
-use styro_rhi::ImageBlitInfo;
 use styro_rhi::ImageDescriptor;
 use styro_rhi::ImageInfo;
 use styro_rhi::ImageLayout;
@@ -94,7 +94,7 @@ struct RenderState {
     frame_index: u64,
     render_data: TextureRenderData,
     frame_semaphore: Semaphore,
-    images: Vec<GpuPtr>,
+    images: Vec<GpuImage>,
 }
 
 impl RenderState {}
@@ -194,14 +194,9 @@ impl Renderer {
             ImageLayout::TransferDstOptimal,
         );
 
-        command_buffer.blit_image(
-            render_target,
-            swapchain_image,
-            &ImageBlitInfo {
-                src_extent: [800, 600, 1],
-                dst_extent: [400, 300, 1],
-                ..Default::default()
-            },
+        command_buffer.copy_image(
+            render_target.crop([0, 0, 0], [800, 600, 1]),
+            swapchain_image.crop([0, 0, 0], [400, 300, 1]),
         );
 
         command_buffer.signal_after(
@@ -283,7 +278,7 @@ pub struct TextureRenderData {
     pipeline: Pipeline,
     indices: GpuPtr,
     staging_buffer: GpuPtr,
-    texture: GpuPtr,
+    texture: GpuImage,
     resource_heap: GpuPtr,
     sampler_heap: GpuPtr,
 }
@@ -336,7 +331,7 @@ impl TextureRenderData {
         });
         let staging_buffer = device.create_buffer(&BufferInfo {
             memory: Memory::HostVisible,
-            size: image_ptr.size as u64,
+            size: (dimensions.0 * dimensions.1 * 4) as u64,
             usage: BufferUsage::General,
         });
         unsafe {
@@ -397,10 +392,10 @@ impl TextureRenderData {
             self.texture,
             ImageLayout::TransferDstOptimal,
         );
-        command_buffer.copy_to_image(self.staging_buffer, self.texture);
+        command_buffer.copy_to_image(self.staging_buffer, self.texture.full_region());
     }
 
-    fn draw(&self, device: &Device, command_buffer: &mut CommandBuffer, framebuffer: GpuPtr) {
+    fn draw(&self, device: &Device, command_buffer: &mut CommandBuffer, framebuffer: GpuImage) {
         command_buffer.image_barrier(Stage::Host, Stage::None, self.texture, ImageLayout::General);
         let mut resource_heap = self.resource_heap;
         let image_descriptor = device.get_image_descriptor(self.texture);
@@ -433,11 +428,11 @@ impl TextureRenderData {
 
     fn free(&self, device: &mut Device) {
         unsafe {
-            device.destroy_ptr(self.resource_heap);
-            device.destroy_ptr(self.sampler_heap);
-            device.destroy_ptr(self.texture);
-            device.destroy_ptr(self.staging_buffer);
-            device.destroy_ptr(self.indices);
+            device.destroy_buffer(self.resource_heap);
+            device.destroy_buffer(self.sampler_heap);
+            device.destroy_image(self.texture);
+            device.destroy_buffer(self.staging_buffer);
+            device.destroy_buffer(self.indices);
         }
     }
 }

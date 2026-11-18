@@ -11,7 +11,7 @@ use super::device::DescriptorHeap;
 use super::device::Image;
 use super::device::ImageData;
 use crate::Error;
-use crate::GpuPtr;
+use crate::GpuImage;
 use crate::ImageInfo;
 use crate::ImageType;
 use crate::ImageUsage;
@@ -73,7 +73,7 @@ pub struct Swapchain {
 }
 
 impl SwapchainRHI for Swapchain {
-    fn acquire_next_image(&mut self) -> Result<GpuPtr, Error> {
+    fn acquire_next_image(&mut self) -> Result<GpuImage, Error> {
         let frame_index = self.frame_index;
         let frame_idx = frame_index as usize % self.resources.maximum_frames_in_flight();
 
@@ -104,7 +104,7 @@ impl SwapchainRHI for Swapchain {
 
             let swapchain_image_ptr = self.resources.image_handles[image_idx as usize];
 
-            let swapchain_image = heap.ptr_to_image(swapchain_image_ptr);
+            let swapchain_image = heap.get_image(swapchain_image_ptr);
 
             assert!(
                 swapchain_image.is_swapchain_image(),
@@ -123,10 +123,10 @@ impl SwapchainRHI for Swapchain {
         }
     }
 
-    fn present(&mut self, swapchain_image: crate::GpuPtr) -> Result<(), Error> {
+    fn present(&mut self, swapchain_image: GpuImage) -> Result<(), Error> {
         let heap = self.heap.read().unwrap();
 
-        let swapchain_image = heap.ptr_to_image(swapchain_image);
+        let swapchain_image = heap.get_image(swapchain_image);
 
         assert!(
             swapchain_image.is_swapchain_image(),
@@ -165,7 +165,7 @@ impl SwapchainRHI for Swapchain {
 struct PresentationResources {
     acquire_semaphores: Vec<vk::Semaphore>, // frames_in_flight
     submit_semaphores: Vec<vk::Semaphore>,  // swapchain_size
-    image_handles: Vec<GpuPtr>,
+    image_handles: Vec<GpuImage>,
 }
 
 impl PresentationResources {
@@ -480,7 +480,7 @@ impl Swapchain {
             if !self.resources.image_handles.is_empty() {
                 let mut heap = self.heap.write().unwrap();
                 for ptr in &self.resources.image_handles {
-                    heap.free_infallible(*ptr);
+                    heap.free_swapchain_image(*ptr);
                 }
             }
         }

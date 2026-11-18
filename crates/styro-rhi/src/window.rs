@@ -58,7 +58,7 @@ use std::{
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 
-use crate::{Error, Format, GpuPtr, Queue, QueueRHI};
+use crate::{Error, Format, GpuImage, Queue, QueueRHI};
 
 /// The window system type
 ///
@@ -311,7 +311,7 @@ pub trait SwapchainCommandRHI {
     /// # Valid usage
     /// - `swapchain_image` must be previously acquired from a call to [SwapchainRHI::acquire_next_image]
     /// - Must only be called one-time during command buffer recording for a given `swapchain_image.
-    fn begin_presenting(&mut self, swapchain_image: GpuPtr);
+    fn begin_presenting(&mut self, swapchain_image: GpuImage);
 }
 
 /// Swapchain functions
@@ -332,12 +332,12 @@ pub trait SwapchainRHI {
     /// - This function must not be called more times than [SwapchainRHI::present] plus
     /// the size of the swapchain.
     /// - All swapchain images acquired from this function must eventually be presented.
-    fn acquire_next_image(&mut self) -> Result<GpuPtr, Error>;
+    fn acquire_next_image(&mut self) -> Result<GpuImage, Error>;
 
     /// Queue a presentation task for the previously acquired swapchain image
     ///
     /// # Valid usage
     /// - `swapchain_image` must be previously acquired from a call to [SwapchainRHI::acquire_next_image]
     /// - `swapchain_image` must not have a pending presentation operation
-    fn present(&mut self, swapchain_image: GpuPtr) -> Result<(), Error>;
+    fn present(&mut self, swapchain_image: GpuImage) -> Result<(), Error>;
 }

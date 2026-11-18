@@ -38,7 +38,7 @@ struct Handles {
     frame_index: u64,
     // scene
     indices: rhi::GpuPtr,
-    _texture: rhi::GpuPtr,
+    _texture: rhi::GpuImage,
     bindless: TextureHeap,
 }
 
@@ -73,7 +73,7 @@ fn upload_texture_blocking(
     device: &mut rhi::Device,
     queue: &mut rhi::Queue,
     format: rhi::Format,
-) -> rhi::GpuPtr {
+) -> rhi::GpuImage {
     let png = include_bytes!("rust.png");
     let pixels = image::load_from_memory_with_format(png, image::ImageFormat::Png)
         .expect("Unable to parse rust.png")
@@ -97,7 +97,7 @@ fn upload_texture_blocking(
         texture,
         rhi::ImageLayout::TransferDstOptimal,
     );
-    command_buffer.copy_to_image(staging, texture);
+    command_buffer.copy_to_image(staging, texture.full_region());
     command_buffer.image_barrier(
         rhi::Stage::Transfer,
         rhi::Stage::FragmentShader,
@@ -109,7 +109,7 @@ fn upload_texture_blocking(
 
     // Wait for the submission, after which the staging buffer is no longer in use
     upload_semaphore.wait(1);
-    unsafe { device.destroy_ptr(staging) };
+    unsafe { device.destroy_buffer(staging) };
 
     texture
 }
@@ -154,7 +154,7 @@ impl TextureHeap {
         &mut self,
         device: &mut rhi::Device,
         index: usize,
-        texture: rhi::GpuPtr,
+        texture: rhi::GpuImage,
         sampler: &rhi::SamplerInfo,
     ) {
         match self {

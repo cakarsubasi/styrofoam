@@ -70,7 +70,7 @@ pub struct CommandBuffer {
     pub(super) signal: Vec<SemaphoreInfo>,
     pub(super) layout_transition_queue: Vec<LayoutTransition>,
     // Presentation state
-    pub(super) presentation: Option<GpuPtr>,
+    pub(super) presentation: Option<GpuImage>,
     // Render pass state
     pub(super) render_pass_state: Option<RenderPassState>,
 }
@@ -176,7 +176,7 @@ impl CommandBuffer {
 
             let (image, old_layout) = {
                 let guard = self.heap.read().unwrap();
-                let image = guard.ptr_to_image(*image);
+                let image = guard.get_image(*image);
                 let old_layout = image.current_layout.get();
                 image.current_layout.set(*new_layout);
                 (image.inner, old_layout)
@@ -273,22 +273,6 @@ impl CommandBuffer {
     }
 }
 
-fn to_extent3d(vec: UVec3) -> vk::Extent3D {
-    vk::Extent3D {
-        width: vec[0],
-        height: vec[1],
-        depth: vec[2],
-    }
-}
-
-fn to_offset3d(vec: UVec3) -> vk::Offset3D {
-    vk::Offset3D {
-        x: vec[0] as i32,
-        y: vec[1] as i32,
-        z: vec[2] as i32,
-    }
-}
-
 impl CommandRHI for CommandBuffer {
     type GpuPtr = GpuPtr;
     type Pipeline = Pipeline;
@@ -321,31 +305,24 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_to_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
+    fn copy_to_image(&mut self, src: Self::GpuPtr, dst: GpuImageRegion) {
+        assert!(
+            dst.is_within_bounds(),
+            "Provided offset and extent are out of bounds for the destination image."
+        );
+
         let heap = self.heap.read().unwrap();
         let src_buffer = heap.ptr_to_buffer(src);
-        let dst_image = heap.ptr_to_image(dst);
-
-        let buffer_offset = src.offset as u64;
-        let image_extent = vk::Extent3D {
-            width: dst_image.desc.dimensions[0],
-            height: dst_image.desc.dimensions[1],
-            depth: dst_image.desc.dimensions[2],
-        };
+        let dst_image = heap.get_image(dst.image);
 
         let regions = [vk::BufferImageCopy::default()
-            .buffer_offset(buffer_offset)
+            .buffer_offset(src.offset as u64)
+            // Tightly packed
             .buffer_image_height(0)
             .buffer_row_length(0)
-            .image_offset(vk::Offset3D::default())
-            .image_extent(image_extent)
-            .image_subresource(
-                vk::ImageSubresourceLayers::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(0) // TODO: maybe consider multiple mip levels?
-                    .base_array_layer(0)
-                    .layer_count(dst_image.desc.layer_count),
-            )];
+            .image_offset(dst.vk_offset())
+            .image_extent(dst.vk_extent())
+            .image_subresource(dst.vk_subresource())];
 
         unsafe {
             self.device.inner.cmd_copy_buffer_to_image(
@@ -358,31 +335,24 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_from_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr) {
+    fn copy_from_image(&mut self, src: GpuImageRegion, dst: Self::GpuPtr) {
+        assert!(
+            src.is_within_bounds(),
+            "Provided offset and extent are out of bounds for the source image."
+        );
+
         let heap = self.heap.read().unwrap();
-        let src_image = heap.ptr_to_image(src);
+        let src_image = heap.get_image(src.image);
         let dst_buffer = heap.ptr_to_buffer(dst);
 
-        let buffer_offset = src.offset as u64;
-        let image_extent = vk::Extent3D {
-            width: src_image.desc.dimensions[0],
-            height: src_image.desc.dimensions[1],
-            depth: src_image.desc.dimensions[2],
-        };
-
         let regions = [vk::BufferImageCopy::default()
-            .buffer_offset(buffer_offset)
+            .buffer_offset(dst.offset as u64)
+            // Tightly packed
             .buffer_image_height(0)
             .buffer_row_length(0)
-            .image_offset(vk::Offset3D::default())
-            .image_extent(image_extent)
-            .image_subresource(
-                vk::ImageSubresourceLayers::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .mip_level(0) // TODO: maybe consider multiple mip levels?
-                    .base_array_layer(0)
-                    .layer_count(src_image.desc.layer_count),
-            )];
+            .image_offset(src.vk_offset())
+            .image_extent(src.vk_extent())
+            .image_subresource(src.vk_subresource())];
 
         unsafe {
             self.device.inner.cmd_copy_image_to_buffer(
@@ -395,105 +365,58 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn copy_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr, info: &ImageCopyInfo) {
+    fn copy_image(&mut self, src: GpuImageRegion, dst: GpuImageRegion) {
+        assert!(
+            src.is_within_bounds(),
+            "Provided offset and extent are out of bounds for the source image."
+        );
+        assert!(
+            dst.is_within_bounds(),
+            "Provided offset and extent are out of bounds for the destination image."
+        );
+
         let heap = self.heap.read().unwrap();
-        let src_image = heap.ptr_to_image(src);
-        let dst_image = heap.ptr_to_image(dst);
+        let src_image = heap.get_image(src.image);
+        let dst_image = heap.get_image(dst.image);
 
-        let src_subresource = vk::ImageSubresourceLayers::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .mip_level(0)
-            .base_array_layer(0)
-            .layer_count(src_image.desc.layer_count);
-
-        let dst_subresource = vk::ImageSubresourceLayers::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .mip_level(0)
-            .base_array_layer(0)
-            .layer_count(src_image.desc.layer_count);
+        // A plain copy is cheaper and is the only option for multisampled and integer images,
+        // so only blit when scaling or format conversion is actually required.
+        let needs_blit = src.extent != dst.extent || src_image.desc.format != dst_image.desc.format;
 
         unsafe {
-            let src_offset = to_offset3d(info.src_offset);
-            let dst_offset = to_offset3d(info.dst_offset);
-            let extent = to_extent3d(info.extent);
+            if needs_blit {
+                let regions = [vk::ImageBlit::default()
+                    .src_subresource(src.vk_subresource())
+                    .src_offsets([src.vk_offset(), src.vk_end_offset()])
+                    .dst_subresource(dst.vk_subresource())
+                    .dst_offsets([dst.vk_offset(), dst.vk_end_offset()])];
 
-            assert!(
-                src_image.extent_is_within_bounds(src_offset, extent),
-                "Provided offset and extent are out of bounds for the source image."
-            );
-            assert!(
-                dst_image.extent_is_within_bounds(dst_offset, extent),
-                "Provided offset and extent are out of bounds for the destination image."
-            );
+                self.device.inner.cmd_blit_image(
+                    self.inner,
+                    src_image.inner,
+                    src_image.current_layout.get(),
+                    dst_image.inner,
+                    dst_image.current_layout.get(),
+                    &regions,
+                    vk::Filter::LINEAR,
+                );
+            } else {
+                let regions = [vk::ImageCopy::default()
+                    .src_subresource(src.vk_subresource())
+                    .src_offset(src.vk_offset())
+                    .dst_subresource(dst.vk_subresource())
+                    .dst_offset(dst.vk_offset())
+                    .extent(src.vk_extent())];
 
-            let regions = [vk::ImageCopy::default()
-                .src_subresource(src_subresource)
-                .src_offset(src_offset)
-                .dst_subresource(dst_subresource)
-                .dst_offset(dst_offset)
-                .extent(extent)];
-
-            self.device.inner.cmd_copy_image(
-                self.inner,
-                src_image.inner,
-                src_image.current_layout.get(),
-                dst_image.inner,
-                dst_image.current_layout.get(),
-                &regions,
-            );
-        }
-    }
-
-    fn blit_image(&mut self, src: Self::GpuPtr, dst: Self::GpuPtr, info: &ImageBlitInfo) {
-        let heap = self.heap.read().unwrap();
-        let src_image = heap.ptr_to_image(src);
-        let dst_image = heap.ptr_to_image(dst);
-
-        let src_subresource = vk::ImageSubresourceLayers::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .mip_level(0)
-            .base_array_layer(0)
-            .layer_count(src_image.desc.layer_count);
-
-        let dst_subresource = vk::ImageSubresourceLayers::default()
-            .aspect_mask(vk::ImageAspectFlags::COLOR)
-            .mip_level(0)
-            .base_array_layer(0)
-            .layer_count(src_image.desc.layer_count);
-
-        unsafe {
-            let src_offset1 = to_offset3d(info.src_offset);
-            let src_offset2 = to_offset3d([
-                info.src_offset[0] + info.src_extent[0],
-                info.src_offset[1] + info.src_extent[1],
-                info.src_offset[2] + info.src_extent[2],
-            ]);
-
-            let dst_offset1 = to_offset3d(info.dst_offset);
-            let dst_offset2 = to_offset3d([
-                info.dst_offset[0] + info.dst_extent[0],
-                info.dst_offset[1] + info.dst_extent[1],
-                info.dst_offset[2] + info.dst_extent[2],
-            ]);
-
-            assert!(src_image.offset_is_within_bounds(src_offset2));
-            assert!(dst_image.offset_is_within_bounds(dst_offset2));
-
-            let regions = [vk::ImageBlit::default()
-                .src_subresource(src_subresource)
-                .src_offsets([src_offset1, src_offset2])
-                .dst_subresource(dst_subresource)
-                .dst_offsets([dst_offset1, dst_offset2])];
-
-            self.device.inner.cmd_blit_image(
-                self.inner,
-                src_image.inner,
-                src_image.current_layout.get(),
-                dst_image.inner,
-                dst_image.current_layout.get(),
-                &regions,
-                vk::Filter::LINEAR,
-            );
+                self.device.inner.cmd_copy_image(
+                    self.inner,
+                    src_image.inner,
+                    src_image.current_layout.get(),
+                    dst_image.inner,
+                    dst_image.current_layout.get(),
+                    &regions,
+                );
+            }
         }
     }
 
@@ -605,13 +528,7 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn image_barrier(
-        &mut self,
-        before: Stage,
-        after: Stage,
-        image: Self::GpuPtr,
-        layout: ImageLayout,
-    ) {
+    fn image_barrier(&mut self, before: Stage, after: Stage, image: GpuImage, layout: ImageLayout) {
         use vk::AccessFlags2 as vkaf;
         // TODO: use a hazards flag
         let src_access_mask = match before {
@@ -787,7 +704,7 @@ impl CommandRHI for CommandBuffer {
                 .map(|target| {
                     let heap = self.heap.read().unwrap();
 
-                    let image = heap.ptr_to_image(target.image);
+                    let image = heap.get_image(target.image);
                     let image_view = image.view.unwrap();
 
                     self.layout_transition_queue.push(LayoutTransition {
@@ -810,7 +727,7 @@ impl CommandRHI for CommandBuffer {
 
             let depth_attachment = if let Some(ref target) = desc.depth_attachment {
                 let heap = self.heap.read().unwrap();
-                let image = heap.ptr_to_image(*&target.image);
+                let image = heap.get_image(target.image);
 
                 self.layout_transition_queue.push(LayoutTransition {
                     image: target.image,
@@ -831,7 +748,7 @@ impl CommandRHI for CommandBuffer {
             };
             let stencil_attachment = if let Some(ref target) = desc.stencil_attachment {
                 let heap = self.heap.read().unwrap();
-                let image = heap.ptr_to_image(target.image);
+                let image = heap.get_image(target.image);
                 self.layout_transition_queue.push(LayoutTransition {
                     image: target.image,
                     new_layout: vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL,
@@ -851,8 +768,8 @@ impl CommandRHI for CommandBuffer {
             };
 
             let extent = if let Some(target) = desc.color_attachments.first() {
-                let heap = self.heap.read().unwrap();
-                heap.ptr_to_image(target.image).extent2d()
+                let [width, height, _] = target.image.dimensions();
+                vk::Extent2D { width, height }
             } else {
                 panic!();
             };
@@ -1012,9 +929,9 @@ impl CommandRHI for CommandBuffer {
 }
 
 impl SwapchainCommandRHI for CommandBuffer {
-    fn begin_presenting(&mut self, swapchain_image: GpuPtr) {
+    fn begin_presenting(&mut self, swapchain_image: GpuImage) {
         let heap = self.heap.read().unwrap();
-        let image = heap.ptr_to_image(swapchain_image);
+        let image = heap.get_image(swapchain_image);
 
         match &image.data {
             ImageData::Allocated(_) => {
@@ -1038,7 +955,7 @@ impl SwapchainCommandRHI for CommandBuffer {
 }
 
 pub(super) struct LayoutTransition {
-    pub image: GpuPtr,
+    pub image: GpuImage,
     pub new_layout: vk::ImageLayout,
     pub src_stage_mask: vk::PipelineStageFlags2,
     pub src_access_mask: vk::AccessFlags2,

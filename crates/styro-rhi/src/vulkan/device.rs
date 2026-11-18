@@ -318,17 +318,18 @@ impl Device {
     pub fn set_object_name(&self, obj: GpuPtr, name: &CStr) {
         let heap = self.heap.read().unwrap();
 
-        if let Some(ref res) = heap.allocations.get(&obj.handle) {
-            match res {
-                HeapOwnedResource::Buffer(buffer) => {
-                    self.handles.set_object_name(buffer.inner, name)
-                }
-                HeapOwnedResource::Image(image) => {
-                    self.handles.set_object_name(image.inner, name);
-                    if let Some(view) = image.view {
-                        self.handles.set_object_name(view, name);
-                    }
-                }
+        if let Some(buffer) = heap.buffers.get(&obj.handle) {
+            self.handles.set_object_name(buffer.inner, name)
+        }
+    }
+
+    pub fn set_image_name(&self, image: GpuImage, name: &CStr) {
+        let heap = self.heap.read().unwrap();
+
+        if let Some(image) = heap.images.get(&image.handle) {
+            self.handles.set_object_name(image.inner, name);
+            if let Some(view) = image.view {
+                self.handles.set_object_name(view, name);
             }
         }
     }
@@ -344,7 +345,7 @@ impl DeviceRHI for Device {
         self.heap.write().unwrap().create_buffer(details)
     }
 
-    fn create_image(&mut self, details: &ImageInfo) -> Self::GpuPtr {
+    fn create_image(&mut self, details: &ImageInfo) -> GpuImage {
         self.heap.write().unwrap().create_image(details)
     }
 
@@ -370,8 +371,20 @@ impl DeviceRHI for Device {
         }
     }
 
-    unsafe fn destroy_ptr(&mut self, ptr: Self::GpuPtr) {
-        self.heap.write().unwrap().free(ptr);
+    unsafe fn destroy_buffer(&mut self, ptr: Self::GpuPtr) {
+        if ptr.is_null() {
+            return;
+        }
+
+        self.heap.write().unwrap().free_buffer(ptr);
+    }
+
+    unsafe fn destroy_image(&mut self, image: GpuImage) {
+        if image.is_null() {
+            return;
+        }
+
+        self.heap.write().unwrap().free_image(image);
     }
 
     fn create_queue(
@@ -760,7 +773,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor {
+    fn get_image_descriptor(&self, image: GpuImage) -> ImageDescriptor {
         let heap = self.heap.read().unwrap();
         let mut descriptor = ImageDescriptor { inner: [0u64; 4] };
         heap.write_image_descriptor(image, &mut descriptor);
@@ -777,7 +790,7 @@ impl DeviceRHI for Device {
     fn write_sampled_image_descriptor(
         &mut self,
         index: usize,
-        image: GpuPtr,
+        image: GpuImage,
         sampler: &SamplerInfo,
     ) {
         let device = self.device();
@@ -788,7 +801,7 @@ impl DeviceRHI for Device {
                 let descriptor_type = vk::DescriptorType::COMBINED_IMAGE_SAMPLER;
 
                 let sampler = heap.get_or_create_sampler(sampler);
-                let image = heap.ptr_to_image(image);
+                let image = heap.get_image(image);
                 let image_info = [vk::DescriptorImageInfo::default()
                     .image_layout(image.current_layout.get())
                     .image_view(image.view.unwrap())
@@ -807,7 +820,7 @@ impl DeviceRHI for Device {
         }
     }
 
-    fn write_storage_image_descriptor(&mut self, index: usize, image: GpuPtr) {
+    fn write_storage_image_descriptor(&mut self, index: usize, image: GpuImage) {
         let device = self.device();
         let heap = self.heap.read().unwrap();
         if let Some(ref descriptors) = self.handles.descriptor_indexing {
@@ -815,7 +828,7 @@ impl DeviceRHI for Device {
                 let descriptor_set = descriptors.get_storage_image_set();
                 let descriptor_type = vk::DescriptorType::STORAGE_IMAGE;
 
-                let image = heap.ptr_to_image(image);
+                let image = heap.get_image(image);
                 let image_info = [vk::DescriptorImageInfo::default()
                     // Storage images always use GENERAL layout
                     .image_layout(vk::ImageLayout::GENERAL)
@@ -898,12 +911,6 @@ impl SwapchainDeviceRHI for Device {
     }
 }
 
-// Might consider having two hash maps for either type and even splitting GpuPtr
-pub(super) enum HeapOwnedResource {
-    Buffer(Buffer),
-    Image(Image),
-}
-
 fn quantize(num: f32, min: f32, max: f32, bits: u32) -> u64 {
     assert!(max > min);
     assert!(bits > 0 && bits < 63);
@@ -973,7 +980,8 @@ impl SamplerInfo {
 
 pub(super) struct DescriptorHeap {
     handle_counter: AtomicU64,
-    allocations: HashMap<u64, HeapOwnedResource>,
+    buffers: HashMap<u64, Buffer>,
+    images: HashMap<u64, Image>,
     device: Arc<DeviceHandles>,
     sampler_cache: RwLock<HashMap<SamplerInfo, vk::Sampler>>,
 }
@@ -986,7 +994,8 @@ impl DescriptorHeap {
         Ok(Self {
             handle_counter: AtomicU64::new(1),
             device,
-            allocations: HashMap::new(),
+            buffers: HashMap::new(),
+            images: HashMap::new(),
             sampler_cache: RwLock::new(HashMap::new()),
         })
     }
@@ -1035,8 +1044,8 @@ impl DescriptorHeap {
         }
     }
 
-    fn write_image_descriptor(&self, image: GpuPtr, addr: &mut ImageDescriptor) {
-        let image = self.ptr_to_image(image);
+    fn write_image_descriptor(&self, image: GpuImage, addr: &mut ImageDescriptor) {
+        let image = self.get_image(image);
 
         let device = &self.device;
         let descriptor_heap = &device.descriptor_heap;
@@ -1072,27 +1081,30 @@ impl DescriptorHeap {
     }
 
     pub fn ptr_to_buffer(&self, ptr: GpuPtr) -> &Buffer {
-        match self.allocations.get(&ptr.handle) {
-            Some(HeapOwnedResource::Buffer(buffer)) => buffer,
-            _ => panic!(),
+        match self.buffers.get(&ptr.handle) {
+            Some(buffer) => buffer,
+            None => panic!("GpuPtr does not refer to a live buffer"),
         }
     }
 
-    pub fn ptr_to_image(&self, ptr: GpuPtr) -> &Image {
-        match self.allocations.get(&ptr.handle) {
-            Some(HeapOwnedResource::Image(image)) => image,
-            _ => panic!(),
+    pub fn get_image(&self, image: GpuImage) -> &Image {
+        match self.images.get(&image.handle) {
+            Some(image) => image,
+            None => panic!("GpuImage does not refer to a live image"),
         }
+    }
+
+    fn next_handle(&self) -> u64 {
+        self.handle_counter.fetch_add(1, Ordering::Relaxed)
     }
 
     fn create_buffer(&mut self, desc: &BufferInfo) -> GpuPtr {
         let buffer = Buffer::new(Arc::clone(&self.device), desc).unwrap();
 
-        let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
+        let handle = self.next_handle();
 
         let size = buffer.size as u32;
-        self.allocations
-            .insert(handle, HeapOwnedResource::Buffer(buffer));
+        self.buffers.insert(handle, buffer);
 
         GpuPtr {
             handle,
@@ -1101,62 +1113,45 @@ impl DescriptorHeap {
         }
     }
 
-    fn create_image(&mut self, desc: &ImageInfo) -> GpuPtr {
-        // TODO: use format
+    fn create_image(&mut self, desc: &ImageInfo) -> GpuImage {
         let image = Image::new(Arc::clone(&self.device), desc);
+        self.insert_image(image)
+    }
 
-        let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
+    fn insert_image(&mut self, image: Image) -> GpuImage {
+        let handle = self.next_handle();
+        let desc = image.desc;
+        self.images.insert(handle, image);
 
-        let size = image.len() as u32;
-        self.allocations
-            .insert(handle, HeapOwnedResource::Image(image));
+        GpuImage { handle, desc }
+    }
 
-        GpuPtr {
-            handle,
-            offset: 0,
-            size,
+    fn free_buffer(&mut self, ptr: GpuPtr) {
+        match self.buffers.remove(&ptr.handle) {
+            Some(buffer) => buffer.free_resources(&self.device),
+            None => panic!("Double free."),
         }
     }
 
-    fn free(&mut self, ptr: GpuPtr) {
-        let res = self.allocations.remove(&ptr.handle);
-
-        if let None = res {
-            panic!("Double free.");
-        } else if let Some(HeapOwnedResource::Image(image)) = res {
-            if image.is_swapchain_image() {
-                panic!("Swapchain images should not be passed to delete_ptr()");
-            } else {
-                image.free_resources(&self.device);
+    fn free_image(&mut self, image: GpuImage) {
+        match self.images.remove(&image.handle) {
+            Some(image) if image.is_swapchain_image() => {
+                panic!("Swapchain images should not be passed to destroy_image()")
             }
-        } else if let Some(HeapOwnedResource::Buffer(buffer)) = res {
-            buffer.free_resources(&self.device);
+            Some(image) => image.free_resources(&self.device),
+            None => panic!("Double free."),
         }
     }
 
-    pub fn free_infallible(&mut self, ptr: GpuPtr) {
-        if ptr.is_null() {
-            return;
-        }
-
-        match self.allocations.remove(&ptr.handle) {
-            Some(HeapOwnedResource::Buffer(buffer)) => buffer.free_resources(&self.device),
-            Some(HeapOwnedResource::Image(image)) => image.free_resources(&self.device),
-            None => {}
-        }
+    pub fn insert_swapchain_image(&mut self, image: Image) -> GpuImage {
+        debug_assert!(image.is_swapchain_image());
+        self.insert_image(image)
     }
 
-    pub fn insert_swapchain_image(&mut self, image: Image) -> GpuPtr {
-        let handle = self.handle_counter.fetch_add(1, Ordering::Relaxed);
-
-        let size = image.len() as u32;
-        self.allocations
-            .insert(handle, HeapOwnedResource::Image(image));
-
-        GpuPtr {
-            handle,
-            offset: 0,
-            size,
+    /// Free a swapchain image. Null and already freed handles are ignored.
+    pub fn free_swapchain_image(&mut self, image: GpuImage) {
+        if let Some(image) = self.images.remove(&image.handle) {
+            image.free_resources(&self.device);
         }
     }
 }
@@ -1166,11 +1161,11 @@ impl Drop for DescriptorHeap {
         unsafe {
             self.device.inner.device_wait_idle().unwrap();
 
-            for (_, res) in self.allocations.drain() {
-                match res {
-                    HeapOwnedResource::Buffer(buffer) => buffer.free_resources(&self.device),
-                    HeapOwnedResource::Image(image) => image.free_resources(&self.device),
-                }
+            for (_, buffer) in self.buffers.drain() {
+                buffer.free_resources(&self.device);
+            }
+            for (_, image) in self.images.drain() {
+                image.free_resources(&self.device);
             }
 
             for (_, sampler) in self.sampler_cache.write().unwrap().drain() {
@@ -1200,6 +1195,118 @@ pub struct GpuPtr {
     handle: u64,
     pub offset: u32,
     pub size: u32,
+}
+
+/// Handle to an image resource
+///
+/// Create with [DeviceRHI::create_image].
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct GpuImage {
+    handle: u64,
+    desc: ImageInfo,
+}
+
+impl GpuImage {
+    /// Create an invalid image handle
+    pub fn null() -> Self {
+        Self {
+            handle: 0,
+            desc: ImageInfo::default(),
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        self.handle == 0
+    }
+
+    /// The description the image was created with
+    pub fn info(&self) -> &ImageInfo {
+        &self.desc
+    }
+
+    /// Dimensions of the image
+    pub fn dimensions(&self) -> UVec3 {
+        self.desc.dimensions
+    }
+
+    /// Region covering the whole image
+    pub fn full_region(self) -> GpuImageRegion {
+        self.crop([0, 0, 0], self.desc.dimensions)
+    }
+
+    /// Region of the image starting at `offset` with size `extent`
+    pub fn crop(self, offset: UVec3, extent: UVec3) -> GpuImageRegion {
+        GpuImageRegion {
+            image: self,
+            offset,
+            extent,
+        }
+    }
+}
+
+/// An image region
+///
+/// Used by transfer commands involving images.
+///
+/// # Valid usage
+/// - `offset + extent` must not exceed the dimensions of `image` in any axis
+#[derive(Debug, Clone, Copy)]
+pub struct GpuImageRegion {
+    pub image: GpuImage,
+    pub offset: UVec3,
+    pub extent: UVec3,
+}
+
+impl GpuImageRegion {
+    /// Check that the region lies within the bounds of its image
+    pub fn is_within_bounds(&self) -> bool {
+        let dims = self.image.desc.dimensions;
+        (0..3).all(|i| {
+            self.offset[i]
+                .checked_add(self.extent[i])
+                .is_some_and(|end| end <= dims[i])
+        })
+    }
+
+    pub(super) fn vk_offset(&self) -> vk::Offset3D {
+        vk::Offset3D {
+            x: self.offset[0] as i32,
+            y: self.offset[1] as i32,
+            z: self.offset[2] as i32,
+        }
+    }
+
+    /// Exclusive upper corner of the region
+    pub(super) fn vk_end_offset(&self) -> vk::Offset3D {
+        vk::Offset3D {
+            x: (self.offset[0] + self.extent[0]) as i32,
+            y: (self.offset[1] + self.extent[1]) as i32,
+            z: (self.offset[2] + self.extent[2]) as i32,
+        }
+    }
+
+    pub(super) fn vk_extent(&self) -> vk::Extent3D {
+        vk::Extent3D {
+            width: self.extent[0],
+            height: self.extent[1],
+            depth: self.extent[2],
+        }
+    }
+
+    pub(super) fn vk_subresource(&self) -> vk::ImageSubresourceLayers {
+        vk::ImageSubresourceLayers::default()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .mip_level(0) // TODO: maybe consider multiple mip levels?
+            .base_array_layer(0)
+            .layer_count(self.image.desc.layer_count)
+    }
+}
+
+impl From<GpuImage> for GpuImageRegion {
+    fn from(image: GpuImage) -> Self {
+        image.full_region()
+    }
 }
 
 impl BufferUsage {
@@ -1381,7 +1488,6 @@ impl ImageUsage {
 }
 
 pub(super) struct AllocatedImageData {
-    pub size: usize,
     pub allocation: vk_mem::Allocation,
 }
 
@@ -1435,8 +1541,6 @@ impl Image {
                 .create_image(&image_info, &allocation_info)
                 .unwrap();
 
-            let memory_req = device.inner.get_image_memory_requirements(image);
-
             // Attachments always need a view. Without descriptor heaps, basically everything needs a view.
             let view = if matches!(description.usage, ImageUsage::Attachment)
                 || device.descriptor_heap.is_none()
@@ -1464,11 +1568,7 @@ impl Image {
                 None
             };
 
-            let data = AllocatedImageData {
-                //device,
-                size: memory_req.size as usize,
-                allocation,
-            };
+            let data = AllocatedImageData { allocation };
 
             Self {
                 inner: image,
@@ -1480,46 +1580,8 @@ impl Image {
         }
     }
 
-    pub fn len(&self) -> usize {
-        match &self.data {
-            ImageData::Allocated(allocated_image_data) => allocated_image_data.size,
-            ImageData::Swapchain(_swapchain_image_data) => 9999999999, // need to figure this out
-        }
-    }
-
     pub fn is_swapchain_image(&self) -> bool {
         matches!(self.data, ImageData::Swapchain(_))
-    }
-
-    pub fn extent2d(&self) -> vk::Extent2D {
-        vk::Extent2D {
-            width: self.desc.dimensions[0],
-            height: self.desc.dimensions[1],
-        }
-    }
-
-    pub fn extent3d(&self) -> vk::Extent3D {
-        vk::Extent3D {
-            width: self.desc.dimensions[0],
-            height: self.desc.dimensions[1],
-            depth: self.desc.dimensions[2],
-        }
-    }
-
-    pub fn extent_is_within_bounds(&self, offset: vk::Offset3D, extent: vk::Extent3D) -> bool {
-        let extent_of_this = self.extent3d();
-
-        (offset.x as u32 + extent.width) <= extent_of_this.width
-            && (offset.y as u32 + extent.height) <= extent_of_this.height
-            && (offset.z as u32 + extent.depth) <= extent_of_this.depth
-    }
-
-    pub fn offset_is_within_bounds(&self, offset: vk::Offset3D) -> bool {
-        let extent_of_this = self.extent3d();
-
-        offset.x <= extent_of_this.width as i32
-            && offset.y <= extent_of_this.height as i32
-            && offset.z <= extent_of_this.depth as i32
     }
 
     pub fn free_resources(mut self, device: &DeviceHandles) {

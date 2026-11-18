@@ -12,7 +12,7 @@ mod vulkan;
 pub mod window;
 
 pub use vulkan::command::{CommandBuffer, Pipeline};
-pub use vulkan::device::{Device, GpuPtr, ShaderIR};
+pub use vulkan::device::{Device, GpuImage, GpuImageRegion, GpuPtr, ShaderIR};
 pub use vulkan::queue::Queue;
 pub use vulkan::semaphore::Semaphore;
 pub use vulkan::swapchain::Swapchain;
@@ -314,7 +314,7 @@ pub enum Clear {
 #[derive(Debug, Clone, Copy)]
 pub struct Attachment {
     /// Attachment image resource
-    pub image: GpuPtr,
+    pub image: GpuImage,
     /// Attachment load operation
     pub load_op: LoadOp,
     /// Attachment store operation
@@ -325,7 +325,7 @@ pub struct Attachment {
 impl Default for Attachment {
     fn default() -> Self {
         Self {
-            image: GpuPtr::null(),
+            image: GpuImage::null(),
             load_op: LoadOp::Clear,
             store_op: StoreOp::Store,
             clear_value: Clear::Color(0.0, 0.0, 0.0, 0.0),
@@ -740,7 +740,7 @@ pub trait DeviceRHI {
     /// Create an image
     ///
     /// Creates an image with the specified details of sufficient size and returns a handle. The handle can be
-    /// freed with a call to [DeviceRHI::destroy_ptr]. When created, an image is in an undefined layout and can be
+    /// freed with a call to [DeviceRHI::destroy_image]. When created, an image is in an undefined layout and can be
     /// transitioned to a different layout by calling [CommandRHI::image_barrier].
     ///
     /// Unlike buffers, images cannot be accessed directly and can only be
@@ -763,7 +763,7 @@ pub trait DeviceRHI {
     /// # Notes
     /// It is probably a design mistake to have
     ///
-    fn create_image(&mut self, details: &ImageInfo) -> Self::GpuPtr;
+    fn create_image(&mut self, details: &ImageInfo) -> GpuImage;
 
     /// Acquire a host mapped pointer to buffer
     ///
@@ -807,18 +807,30 @@ pub trait DeviceRHI {
     /// - Having a live [reference] is considered an implicit read.
     fn buffer_device_addr(&self, ptr: Self::GpuPtr) -> u64;
 
-    /// Deallocate a buffer or an image
+    /// Deallocate a buffer
     ///
     /// # Valid usage
     /// - `ptr` must have `offset` 0 and the same `size` that it had when created using [DeviceRHI::create_buffer]
-    /// or [DeviceRHI::create_image]
     /// - `ptr` must be live
     /// - `ptr` must not be in use
     ///
     /// # Safety
     /// - `ptr` must not be in use when this function is called. Using a timeline semaphore to wait on all
     /// computations on the memory to complete is sufficient to ensure this.
-    unsafe fn destroy_ptr(&mut self, ptr: Self::GpuPtr);
+    unsafe fn destroy_buffer(&mut self, ptr: Self::GpuPtr);
+
+    /// Deallocate an image
+    ///
+    /// # Valid usage
+    /// - `image` must have been created using [DeviceRHI::create_image]
+    /// - `image` must not be a swapchain image
+    /// - `image` must be live
+    /// - `image` must not be in use
+    ///
+    /// # Safety
+    /// - `image` must not be in use when this function is called. Using a timeline semaphore to wait on all
+    /// computations on the image to complete is sufficient to ensure this.
+    unsafe fn destroy_image(&mut self, image: GpuImage);
 
     /// Get bytes for an image descriptor
     ///
@@ -827,7 +839,7 @@ pub trait DeviceRHI {
     /// - `image` must be an image
     /// - `image` must be live
     /// - `image` must not be in the undefined layout
-    fn get_image_descriptor(&self, image: Self::GpuPtr) -> ImageDescriptor;
+    fn get_image_descriptor(&self, image: GpuImage) -> ImageDescriptor;
 
     /// Get bytes for an immutable sampler descriptor
     ///
@@ -844,7 +856,12 @@ pub trait DeviceRHI {
     /// - `image` must be live
     /// - `image` must not be in the undefined layout
     /// - `sampler` must be a valid [SamplerInfo] structure
-    fn write_sampled_image_descriptor(&mut self, idx: usize, image: GpuPtr, sampler: &SamplerInfo);
+    fn write_sampled_image_descriptor(
+        &mut self,
+        idx: usize,
+        image: GpuImage,
+        sampler: &SamplerInfo,
+    );
 
     /// Write a storage image descriptor to the managed descriptor heap
     ///
@@ -853,7 +870,7 @@ pub trait DeviceRHI {
     /// - `image` must be a storage image
     /// - `image` must be live
     /// - `image` must be in the general layout whenever it is accessed through this descriptor
-    fn write_storage_image_descriptor(&mut self, idx: usize, image: GpuPtr);
+    fn write_storage_image_descriptor(&mut self, idx: usize, image: GpuImage);
 
     /// Acquire a submission queue and allocate command buffers
     ///
@@ -1131,21 +1148,6 @@ pub enum ImageLayout {
 
 pub type PushData<'a> = &'a [u8];
 
-#[derive(Clone, Copy, Default)]
-pub struct ImageCopyInfo {
-    pub src_offset: UVec3,
-    pub dst_offset: UVec3,
-    pub extent: UVec3,
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct ImageBlitInfo {
-    pub src_offset: UVec3,
-    pub dst_offset: UVec3,
-    pub src_extent: UVec3,
-    pub dst_extent: UVec3,
-}
-
 /// Structure for indirect drawing
 ///
 ///
@@ -1192,25 +1194,39 @@ pub trait CommandRHI {
     ///
     fn copy_buffer(&mut self, src_buffer: Self::GpuPtr, dst_buffer: Self::GpuPtr);
 
-    /// Copy `src_buffer` bytes to `dst_image`
-    // TODO: it might be a good idea to make this API a bit more obvious
-    fn copy_to_image(&mut self, src_buffer: Self::GpuPtr, dst_image: Self::GpuPtr);
+    /// Copy `src_buffer` bytes to the `dst_image` region
+    ///
+    /// Texels are read tightly packed starting at `src_buffer.offset`.
+    ///
+    /// # Valid usage
+    /// - `dst_image` must be within the bounds of its image
+    /// - `dst_image.image` must be in the [ImageLayout::TransferDstOptimal] or [ImageLayout::General] layout
+    /// - `src_buffer` must be large enough to hold the texels of the region
+    fn copy_to_image(&mut self, src_buffer: Self::GpuPtr, dst_image: GpuImageRegion);
 
-    /// Copy `src_image` bytes to `dst_buffer`
-    // TODO: it might be a good idea to make this API a bit more obvious
-    fn copy_from_image(&mut self, src_image: Self::GpuPtr, dst_buffer: Self::GpuPtr);
-    fn copy_image(
-        &mut self,
-        src_image: Self::GpuPtr,
-        dst_image: Self::GpuPtr,
-        info: &ImageCopyInfo,
-    );
-    fn blit_image(
-        &mut self,
-        src_image: Self::GpuPtr,
-        dst_image: Self::GpuPtr,
-        info: &ImageBlitInfo,
-    );
+    /// Copy the `src_image` region to `dst_buffer`
+    ///
+    /// Texels are written tightly packed starting at `dst_buffer.offset`.
+    ///
+    /// # Valid usage
+    /// - `src_image` must be within the bounds of its image
+    /// - `src_image.image` must be in the [ImageLayout::TransferSrcOptimal] or [ImageLayout::General] layout
+    /// - `dst_buffer` must be large enough to hold the texels of the region
+    fn copy_from_image(&mut self, src_image: GpuImageRegion, dst_buffer: Self::GpuPtr);
+
+    /// Copy the `src_image` region to the `dst_image` region
+    ///
+    /// If both regions have the same extent and the images have the same format, the texels are copied
+    /// verbatim. Otherwise the source region is scaled to the destination region with linear filtering.
+    ///
+    /// # Valid usage
+    /// - Both regions must be within the bounds of their images
+    /// - `src_image.image` must be in the [ImageLayout::TransferSrcOptimal] or [ImageLayout::General] layout
+    /// - `dst_image.image` must be in the [ImageLayout::TransferDstOptimal] or [ImageLayout::General] layout
+    /// - If the regions differ in extent or format, both formats must support blitting and linear filtering,
+    /// and neither image may be multisampled
+    /// - If the regions are of the same image, they must not overlap
+    fn copy_image(&mut self, src_image: GpuImageRegion, dst_image: GpuImageRegion);
 
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 
@@ -1221,13 +1237,7 @@ pub trait CommandRHI {
     /// # Valid usage
     /// - `image` must be a valid image
     /// - `layout` must not be [ImageLayout::Undefined]
-    fn image_barrier(
-        &mut self,
-        before: Stage,
-        after: Stage,
-        image: Self::GpuPtr,
-        layout: ImageLayout,
-    );
+    fn image_barrier(&mut self, before: Stage, after: Stage, image: GpuImage, layout: ImageLayout);
     fn signal_after(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
     fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
 
