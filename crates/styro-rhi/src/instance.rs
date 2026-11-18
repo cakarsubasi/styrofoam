@@ -38,7 +38,11 @@ pub struct DeviceFeatures {
     /// Enables using [crate::CommandRHI::set_blend_state] instead of baking
     /// blend state inside a [crate::Pipeline].
     ///
-    /// On Vulkan, corresponds to `VK_EXT_extended_dynamic_state3`.
+    /// On Vulkan, corresponds to `VK_EXT_extended_dynamic_state3`'s following fields:
+    /// - `extendedDynamicState3ColorBlendEnable`
+    /// - `extendedDynamicState3ColorBlendEquation`
+    /// - `extendedDynamicState3ColorWriteMask`
+    /// - `extendedDynamicState3ColorBlendAdvanced`
     pub dynamic_blend_state: bool,
     /// Mesh shaders. Mesh shader pipelines can be created using [crate::DeviceRHI::create_meshlet_pipeline].
     /// These can then be bound and drawn using [crate::CommandRHI::draw_meshlets] and

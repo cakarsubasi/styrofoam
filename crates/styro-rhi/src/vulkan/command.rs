@@ -5,8 +5,8 @@ use std::sync::RwLock;
 
 use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
-use super::gpu_ptr::GpuPtr;
 use super::device::ImageData;
+use super::gpu_ptr::GpuPtr;
 use super::semaphore::Semaphore;
 use crate::*;
 
@@ -236,14 +236,7 @@ impl CommandBuffer {
                 stencil_back: StencilInfo::default(),
             });
 
-            self.set_blend_state(&BlendInfo {
-                color_op: BlendOp::Add,
-                src_color_factor: BlendFactor::SrcColor,
-                dst_color_factor: BlendFactor::DstColor,
-                alpha_op: BlendOp::Add,
-                src_alpha_factor: BlendFactor::SrcAlpha,
-                dst_alpha_factor: BlendFactor::DstAlpha,
-            });
+            self.set_blend_state(None);
         }
     }
 
@@ -511,8 +504,9 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn barrier(&mut self, before: Stage, after: Stage /* something goes here */) {
+    fn barrier(&mut self, before: Stage, after: Stage, _hazards: Hazard) {
         unsafe {
+            // TODO: use hazards
             // A read after write indicates a true dependency which is the strictest
             // synchronization option we have. Might be a good idea to make this more relaxed
             let barriers = [vk::MemoryBarrier2::default()
@@ -643,25 +637,28 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_blend_state(&mut self, state: &BlendInfo) {
+    fn set_blend_state(&mut self, state: Option<&BlendInfo>) {
         unsafe {
             if let Some(extended_dynamic_state3) = &self.device.extended_dynamic_state3 {
-                extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
+                if let Some(state) = state {
+                    extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::TRUE]);
 
-                let color_blend_equation = vk::ColorBlendEquationEXT::default()
-                    .src_color_blend_factor(state.src_color_factor.into())
-                    .dst_color_blend_factor(state.dst_color_factor.into())
-                    .color_blend_op(state.color_op.into())
-                    .src_alpha_blend_factor(state.src_alpha_factor.into())
-                    .dst_alpha_blend_factor(state.dst_alpha_factor.into())
-                    .alpha_blend_op(state.alpha_op.into());
+                    let color_blend_equation = vk::ColorBlendEquationEXT::default()
+                        .src_color_blend_factor(state.src_color_factor.into())
+                        .dst_color_blend_factor(state.dst_color_factor.into())
+                        .color_blend_op(state.color_op.into())
+                        .src_alpha_blend_factor(state.src_alpha_factor.into())
+                        .dst_alpha_blend_factor(state.dst_alpha_factor.into())
+                        .alpha_blend_op(state.alpha_op.into());
 
-                extended_dynamic_state3.cmd_set_color_blend_equation(
-                    self.inner,
-                    0,
-                    &[color_blend_equation],
-                );
-
+                    extended_dynamic_state3.cmd_set_color_blend_equation(
+                        self.inner,
+                        0,
+                        &[color_blend_equation],
+                    );
+                } else {
+                    extended_dynamic_state3.cmd_set_color_blend_enable(self.inner, 0, &[vk::FALSE]);
+                }
                 extended_dynamic_state3.cmd_set_color_write_mask(
                     self.inner,
                     0,

@@ -24,6 +24,9 @@ pub use format::Format;
 /// Re-export ash just in case
 pub use ash;
 
+pub use instance::*;
+pub use window::*;
+
 pub use ash::util::read_spv;
 
 pub mod traits {
@@ -784,7 +787,6 @@ pub trait DeviceRHI {
     /// The pointer can be used to copy data from the host for device use or to read data back from the device.
     ///
     /// # Valid usage
-    /// - `ptr` must be a buffer
     /// - `ptr.size` and `ptr.offset` must be in bounds for the buffer
     /// - `ptr` must not be created with `Memory::DeviceLocal`
     /// - `ptr` must not be the null pointer
@@ -807,7 +809,6 @@ pub trait DeviceRHI {
     /// then be dereferenced from a shader to access the contained data.
     ///
     /// # Valid usage
-    /// - `ptr` must be a buffer
     /// - `ptr.size` and `ptr.offset` must be in bounds for the buffer
     /// - `ptr` must not be the null pointer
     ///
@@ -861,7 +862,6 @@ pub trait DeviceRHI {
     ///
     /// # Valid usage
     /// - `descriptor_heap` feature must be enabled
-    /// - `image` must be an image
     /// - `image` must be live
     /// - `image` must not be in the undefined layout
     fn get_image_descriptor(&self, image: GpuImage) -> ImageDescriptor;
@@ -1121,8 +1121,7 @@ pub enum Stage {
 }
 
 // TODO
-#[allow(dead_code)]
-enum Hazard {
+pub enum Hazard {
     None,
     /// Indirect dispatch/draw buffer write-read hazard
     ///
@@ -1212,7 +1211,9 @@ pub trait CommandRHI {
 
     /// Copy `src_buffer` to `dst_buffer`
     ///
-    ///
+    /// # Valid usage
+    /// - `src_buffer` and `dst_buffer` must respectively be in bounds
+    /// - `src_buffer.size` must be greater than or equal to `dst_buffer.size`
     fn copy_buffer(&mut self, src_buffer: Self::GpuPtr, dst_buffer: Self::GpuPtr);
 
     /// Copy `src_buffer` bytes to the `dst_image` region
@@ -1249,9 +1250,25 @@ pub trait CommandRHI {
     /// - If the regions are of the same image, they must not overlap
     fn copy_image(&mut self, src_image: GpuImageRegion, dst_image: GpuImageRegion);
 
+    ///
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 
-    fn barrier(&mut self, before: Stage, after: Stage /* something goes here */);
+    /// Emit a pipeline barrier
+    ///
+    /// Stalls the pipeline such that all commands after this function call that belong to stage `after`
+    /// wait until all commands before this function call that belong to stage `before`. This property
+    /// is maintained with multiple submissions to the same queue.
+    ///
+    /// Example:
+    /// ```
+    /// command_buffer.draw(...);     // A
+    /// command_buffer.dispatch(...); // B
+    /// command_buffer.barrier(Stage::Compute, Stage::ALL_GRAPHICS);
+    /// command_buffer.dispatch(...); // C
+    /// command_buffer.draw(...);     // D
+    /// // D is stalled until B is complete, A, B, and C can finish in any order
+    /// ```
+    fn barrier(&mut self, before: Stage, after: Stage, hazards: Hazard);
 
     /// Perform an image layout transition
     ///
@@ -1263,17 +1280,40 @@ pub trait CommandRHI {
     fn wait_before(&mut self, stage: Stage, semaphore: &Self::Semaphore, value: u64);
 
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline);
-    fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo);
-    fn set_blend_state(&mut self, state: &BlendInfo);
 
+    /// Dynamically set depth-stencil state
+    fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo);
+
+    /// Dynamically set blend state
+    ///
+    /// # Valid usage
+    /// - Device must be created with `dynamic_blend_state` enabled. See [crate::DeviceFeatures]
+    fn set_blend_state(&mut self, state: Option<&BlendInfo>);
+
+    /// Dispatch compute work items
     fn dispatch(&mut self, data: PushData, dimensions: UVec3);
+
+    /// Dispatch compute work items using indirect parameters
     fn dispatch_indirect(&mut self, data: PushData, indirect_buffer: Self::GpuPtr);
 
+    /// Enter a render pass scope
     fn begin_rendering(&mut self, desc: &RenderingInfo);
+
+    /// Exit a render pass scope
     fn end_rendering(&mut self);
 
+    /// Draw primitives
+    ///
+    /// # Valid usage
+    /// - `self` must be in render pass scope
+    /// - A graphics pipeline must have been bound using a call to [DeviceRHI::set_pipeline]
+    /// - `data` must not exceed 256 bytes
     fn draw(&mut self, data: PushData, indices: u32, instances: u32);
+
+    /// Draw primitives using an index buffer
     fn draw_indexed(&mut self, data: PushData, indices: Self::GpuPtr, instances: u32);
+
+    /// Draw primitives using indirect parameters and an index buffer
     fn draw_indexed_indirect(
         &mut self,
         data: PushData,
@@ -1281,9 +1321,9 @@ pub trait CommandRHI {
         indirect: Self::GpuPtr,
     );
 
+    /// Draw mesh task work items
     fn draw_meshlets(&mut self, data: PushData, dimension: UVec3);
+
+    /// Draw mesh task work items using indirect parameters
     fn draw_meshlets_indirect(&mut self, data: PushData, dim_data: Self::GpuPtr);
 }
-
-pub use instance::*;
-pub use window::*;
