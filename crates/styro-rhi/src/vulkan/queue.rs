@@ -8,8 +8,8 @@ use ash::vk;
 
 use super::command::CommandBuffer;
 use super::command::LayoutTransition;
-use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
+use super::gpu_resources::GpuResources;
 
 use crate::*;
 
@@ -95,14 +95,14 @@ impl QueuePool {
 
 pub struct Queue {
     device: Weak<DeviceHandles>,
-    heap: Weak<RwLock<DescriptorHeap>>,
+    heap: Weak<RwLock<GpuResources>>,
     queue: QueuePool,
 }
 
 impl Queue {
     pub(super) fn new(
         device: &Arc<DeviceHandles>,
-        heap: &Arc<RwLock<DescriptorHeap>>,
+        heap: &Arc<RwLock<GpuResources>>,
         family_index: u32,
         command_pools: u32,
         command_buffers_per_pool: u32,

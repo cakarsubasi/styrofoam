@@ -10,6 +10,8 @@ mod descriptor_indexing;
 pub mod device;
 /// Buffer handles
 pub mod gpu_ptr;
+/// Internal buffer and image handles and the table that owns them
+mod gpu_resources;
 /// Image handles and image regions
 pub mod image;
 /// The instance handle and constructors for handles obtained from the instance

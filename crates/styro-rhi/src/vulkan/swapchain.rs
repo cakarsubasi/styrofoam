@@ -7,9 +7,9 @@ use ash::VkResult;
 use ash::khr;
 use ash::vk;
 
-use super::device::DescriptorHeap;
-use super::device::Image;
-use super::device::ImageData;
+use super::gpu_resources::GpuResources;
+use super::gpu_resources::Image;
+use super::gpu_resources::ImageData;
 use crate::Error;
 use crate::GpuImage;
 use crate::ImageInfo;
@@ -60,7 +60,7 @@ impl Drop for SwapchainHandle {
 pub struct Swapchain {
     // device data
     device: Arc<DeviceHandles>,
-    heap: Arc<RwLock<DescriptorHeap>>,
+    heap: Arc<RwLock<GpuResources>>,
     // swapchain data
     inner: SwapchainHandle,
     // surface associated with this swapchain
@@ -218,7 +218,7 @@ fn valid_extent(
 impl Swapchain {
     pub(super) unsafe fn new(
         device: Arc<DeviceHandles>,
-        heap: Arc<RwLock<DescriptorHeap>>,
+        heap: Arc<RwLock<GpuResources>>,
         window: &WindowSystemData,
         present_queue: vk::Queue,
         info: &SwapchainInfo,
@@ -324,7 +324,7 @@ impl Swapchain {
     unsafe fn create_swapchain(
         device: Arc<DeviceHandles>,
         surface: Surface,
-        heap: Arc<RwLock<DescriptorHeap>>,
+        heap: Arc<RwLock<GpuResources>>,
         swapchain: vk::SwapchainKHR,
         present_queue: vk::Queue,
         info: &SwapchainInfo,
@@ -410,7 +410,7 @@ impl Swapchain {
                             usage: ImageUsage::Attachment,
                         },
                         current_layout: Cell::new(vk::ImageLayout::UNDEFINED),
-                        data: ImageData::Swapchain(super::device::SwapchainImageData {
+                        data: ImageData::Swapchain(super::gpu_resources::SwapchainImageData {
                             idx: idx as u32,
                             submit_wait: Cell::new(vk::Semaphore::null()),
                             submit_signal_present_wait: Cell::new(vk::Semaphore::null()),

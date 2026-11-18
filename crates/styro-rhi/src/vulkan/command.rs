@@ -3,10 +3,10 @@ use std::ffi::CStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
-use super::device::ImageData;
 use super::gpu_ptr::GpuPtr;
+use super::gpu_resources::GpuResources;
+use super::gpu_resources::ImageData;
 use super::semaphore::Semaphore;
 use crate::*;
 
@@ -62,7 +62,7 @@ pub(super) struct RenderPassState {
 pub struct CommandBuffer {
     // Handles
     pub(super) device: Arc<DeviceHandles>,
-    pub(super) heap: Arc<RwLock<DescriptorHeap>>,
+    pub(super) heap: Arc<RwLock<GpuResources>>,
     pub(super) inner: vk::CommandBuffer,
     pub(super) command_pool_idx: u32,
     // Subpass state
