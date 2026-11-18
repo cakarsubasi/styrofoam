@@ -12,7 +12,9 @@ mod vulkan;
 pub mod window;
 
 pub use vulkan::command::{CommandBuffer, Pipeline};
-pub use vulkan::device::{Device, GpuImage, GpuImageRegion, GpuPtr, ShaderIR};
+pub use vulkan::device::{Device, ShaderIR};
+pub use vulkan::gpu_ptr::GpuPtr;
+pub use vulkan::image::{GpuImage, GpuImageRegion};
 pub use vulkan::queue::Queue;
 pub use vulkan::semaphore::Semaphore;
 pub use vulkan::swapchain::Swapchain;

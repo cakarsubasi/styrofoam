@@ -6,6 +6,10 @@ mod conversions;
 mod debug;
 /// The device handle and constructors for handles obtained from the device
 pub mod device;
+/// Buffer handles
+pub mod gpu_ptr;
+/// Image handles and image regions
+pub mod image;
 /// The instance handle and constructors for handles obtained from the instance
 pub(crate) mod instance;
 /// Queues and their command pools

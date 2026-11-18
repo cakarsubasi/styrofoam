@@ -5,7 +5,7 @@ use std::sync::RwLock;
 
 use super::device::DescriptorHeap;
 use super::device::DeviceHandles;
-use super::device::GpuPtr;
+use super::gpu_ptr::GpuPtr;
 use super::device::ImageData;
 use super::semaphore::Semaphore;
 use crate::*;
