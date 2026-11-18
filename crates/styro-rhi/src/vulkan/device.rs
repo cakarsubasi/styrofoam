@@ -846,6 +846,20 @@ impl DeviceRHI for Device {
             }
         }
     }
+
+    fn invalidate_memory_region(&self, ptr: Self::GpuPtr, location: MemoryLocation) {
+        let heap = self.heap.read().unwrap();
+        let buffer = heap.ptr_to_buffer(ptr);
+        let allocator = &self.handles.allocator;
+        match location {
+            MemoryLocation::Host => allocator
+                .invalidate_allocation(&buffer.allocation, ptr.offset as u64, ptr.size as u64)
+                .unwrap(),
+            MemoryLocation::Device => allocator
+                .flush_allocation(&buffer.allocation, ptr.offset as u64, ptr.size as u64)
+                .unwrap(),
+        };
+    }
 }
 
 impl SwapchainDeviceRHI for Device {
@@ -1192,16 +1206,16 @@ impl BufferUsage {
 impl Memory {
     fn vma_options(&self) -> vk_mem::AllocationCreateInfo {
         match self {
-            Memory::HostVisible => vk_mem::AllocationCreateInfo {
+            Memory::Upload => vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
                 flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
-            Memory::DeviceLocal => vk_mem::AllocationCreateInfo {
+            Memory::GpuOnly => vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::AutoPreferDevice,
                 ..Default::default()
             },
-            Memory::HostCoherent => vk_mem::AllocationCreateInfo {
+            Memory::Cached => vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
                 flags: vk_mem::AllocationCreateFlags::HOST_ACCESS_RANDOM,
                 ..Default::default()
@@ -1241,7 +1255,7 @@ impl Buffer {
                 .allocator
                 .create_buffer(&buffer_info, &allocation_info)?;
 
-            let mapped_ptr = if let Memory::DeviceLocal = desc.memory {
+            let mapped_ptr = if let Memory::GpuOnly = desc.memory {
                 None
             } else {
                 Some(device.allocator.map_memory(&mut allocation).unwrap())

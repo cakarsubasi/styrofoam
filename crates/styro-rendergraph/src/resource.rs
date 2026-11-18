@@ -86,21 +86,21 @@ impl BufferDesc {
     pub fn upload(size: usize) -> Self {
         Self {
             size: size as u32,
-            location: rhi::Memory::HostVisible,
+            location: rhi::Memory::Upload,
         }
     }
 
     pub fn gpu(size: usize) -> Self {
         Self {
             size: size as u32,
-            location: rhi::Memory::DeviceLocal,
+            location: rhi::Memory::GpuOnly,
         }
     }
 
     pub fn readback(size: usize) -> Self {
         Self {
             size: size as u32,
-            location: rhi::Memory::HostCoherent,
+            location: rhi::Memory::Cached,
         }
     }
 }

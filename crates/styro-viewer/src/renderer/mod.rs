@@ -247,7 +247,7 @@ impl TriangleRenderData {
         let pipeline =
             unsafe { device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description) };
         let buffer_desc = BufferInfo {
-            memory: Memory::HostVisible,
+            memory: Memory::Upload,
             size: 4 * 6,
             usage: BufferUsage::General,
         };
@@ -305,7 +305,7 @@ impl TextureRenderData {
             unsafe { device.create_graphics_pipeline(&vertex_ir, &frag_ir, &description) };
         pipeline.set_object_name(c"bindlessTextureExamplePipeline");
         let buffer_desc = BufferInfo {
-            memory: Memory::HostVisible,
+            memory: Memory::Upload,
             size: 4 * 6,
             usage: BufferUsage::General,
         };
@@ -330,7 +330,7 @@ impl TextureRenderData {
             ..Default::default()
         });
         let staging_buffer = device.create_buffer(&BufferInfo {
-            memory: Memory::HostVisible,
+            memory: Memory::Upload,
             size: (dimensions.0 * dimensions.1 * 4) as u64,
             usage: BufferUsage::General,
         });
@@ -344,12 +344,12 @@ impl TextureRenderData {
         let heap_props = device.get_descriptor_heap_properties();
 
         let mut resource_heap = device.create_buffer(&BufferInfo {
-            memory: Memory::HostVisible,
+            memory: Memory::Upload,
             size: heap_props.max_resource_heap_size,
             usage: BufferUsage::DescriptorHeap,
         });
         let mut sampler_heap = device.create_buffer(&BufferInfo {
-            memory: Memory::HostVisible,
+            memory: Memory::Upload,
             size: heap_props.max_sampler_heap_size,
             usage: BufferUsage::DescriptorHeap,
         });

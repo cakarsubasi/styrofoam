@@ -59,7 +59,7 @@ fn create_buffer_with_data(
     data: &[u8],
 ) -> rhi::GpuPtr {
     let buffer = device.create_buffer(&rhi::BufferInfo {
-        memory: rhi::Memory::HostVisible,
+        memory: rhi::Memory::Upload,
         size: data.len() as u64,
         usage,
     });
@@ -134,12 +134,12 @@ impl TextureHeap {
             + sampler_alignment;
 
         let resource_heap = device.create_buffer(&rhi::BufferInfo {
-            memory: rhi::Memory::HostVisible,
+            memory: rhi::Memory::Upload,
             size: resource_size,
             usage: rhi::BufferUsage::DescriptorHeap,
         });
         let sampler_heap = device.create_buffer(&rhi::BufferInfo {
-            memory: rhi::Memory::HostVisible,
+            memory: rhi::Memory::Upload,
             size: sampler_size,
             usage: rhi::BufferUsage::DescriptorHeap,
         });

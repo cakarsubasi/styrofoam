@@ -418,7 +418,7 @@ impl Default for RasterDescription<'_> {
     }
 }
 
-/// Buffer memory location
+/// Buffer memory type
 ///
 /// See [DeviceRHI::create_buffer]
 #[derive(Debug, Clone, Copy, Default)]
@@ -429,25 +429,37 @@ pub enum Memory {
     /// reads from the device.
     ///
     /// With this memory type, you should be careful not to perform reads or access memory in a non-sequential manner. As
-    /// the memory is typically not host-backed,
+    /// the memory may not be cached but is host coherent, even small reads from it can cause unnecessary bus traffic.
     ///
     /// On Vulkan, corresponds to `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT`
     #[default]
-    HostVisible,
+    Upload,
     /// Buffer memory will be optimal for the device
     ///
     /// This is the suggested memory type for images that are not used for readback and buffers that will only be accessed
     /// by a device. Buffers created with this memory type may not be passed to [DeviceRHI::buffer_host_addr].
     ///
     /// On Vulkan, corresponds to `VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT`
-    DeviceLocal,
-    /// Buffer memory will be readable from the host
+    GpuOnly,
+    /// Buffer memory will be cached on the host
     ///
-    /// This is the suggested memory type for host readback.
+    /// This is the suggested memory type for host readback. Unlike [Memory::Upload], this is not guaranteed to be
+    /// coherent between the host and device, potentially necessitating a call to
     ///
-    /// On Vulkan, corresponds to `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
-    /// VK_MEMORY_PROPERTY_HOST_CACHED_BIT`
-    HostCoherent,
+    /// On Vulkan, corresponds to `VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT`
+    Cached,
+}
+
+/// Which memory location to invalidate when calling [DeviceRHI::invalidate_memory_region]
+pub enum MemoryLocation {
+    /// Invalidate host memory
+    ///
+    /// Use this when you want to read back memory from the host.
+    Host,
+    /// Invalidate device memory
+    ///
+    /// Use this when you write to a [Memory::Cached] buffer and want to read the memory from the device.
+    Device,
 }
 
 /// Buffer memory usage
@@ -809,6 +821,17 @@ pub trait DeviceRHI {
     /// - Having a live [reference] is considered an implicit read.
     fn buffer_device_addr(&self, ptr: Self::GpuPtr) -> u64;
 
+    /// Invalidate memory region for either host or device
+    ///
+    /// This should be called when attempting to read a buffer of type [Memory::Cached] on platforms without UMA.
+    /// Note that performing a read without calling this function is not necessarily erronuous but can lead to seeing
+    /// stale data.
+    ///
+    /// # Valid usage
+    /// - `ptr` must be [Memory::Cached]
+    /// - `ptr.size` and `ptr.offset` must be in bounds for the buffer.
+    fn invalidate_memory_region(&self, ptr: Self::GpuPtr, location: MemoryLocation);
+
     /// Deallocate a buffer
     ///
     /// # Valid usage
@@ -1141,8 +1164,6 @@ pub enum ImageLayout {
     /// Optimal layout to copy to
     TransferDstOptimal,
     /// Optimal layout for an input attachment
-    ///
-    ///
     RenderingLocalRead,
     /// Layout as a presentation source for a surface
     PresentSrc,
@@ -1151,8 +1172,6 @@ pub enum ImageLayout {
 pub type PushData<'a> = &'a [u8];
 
 /// Structure for indirect drawing
-///
-///
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct CommandDrawIndexedInstancedIndirect {
