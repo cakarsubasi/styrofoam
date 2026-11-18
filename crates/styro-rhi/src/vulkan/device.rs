@@ -1,7 +1,6 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::ffi::CStr;
-use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -16,6 +15,7 @@ use ash::vk::TaggedStructure as _;
 use vk_mem::Alloc;
 
 use super::command::PipelineType;
+use super::descriptor_indexing::DescriptorIndexingData;
 use super::instance::DescriptorHeapProps;
 use super::instance::DeviceResult;
 
@@ -25,140 +25,6 @@ use super::swapchain::Swapchain;
 
 use crate::instance::DeviceCreateInfo;
 use crate::*;
-
-pub(super) struct DescriptorIndexingData {
-    descriptor_pool: vk::DescriptorPool,
-    pub descriptor_sets: [vk::DescriptorSet; 2],
-    descriptor_set_layouts: [vk::DescriptorSetLayout; 2],
-    pub pipeline_layout: vk::PipelineLayout,
-}
-
-impl DescriptorIndexingData {
-    fn new(device: &ash::Device) -> Self {
-        unsafe {
-            let binding_size = 4096;
-
-            let all_stages = vk::ShaderStageFlags::VERTEX
-                | vk::ShaderStageFlags::FRAGMENT
-                | vk::ShaderStageFlags::COMPUTE;
-
-            let descriptor_pool = device
-                .create_descriptor_pool(
-                    &vk::DescriptorPoolCreateInfo::default()
-                        .max_sets(2)
-                        .flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND)
-                        .pool_sizes(&[
-                            vk::DescriptorPoolSize::default()
-                                .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                                .descriptor_count(binding_size),
-                            vk::DescriptorPoolSize::default()
-                                .ty(vk::DescriptorType::STORAGE_IMAGE)
-                                .descriptor_count(binding_size),
-                        ]),
-                    None,
-                )
-                .unwrap();
-
-            let push_constant_ranges = [vk::PushConstantRange::default()
-                .offset(0)
-                .size(256)
-                .stage_flags(all_stages)];
-
-            let binding_flags = vk::DescriptorBindingFlags::PARTIALLY_BOUND
-                | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND
-                | vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
-                | vk::DescriptorBindingFlags::VARIABLE_DESCRIPTOR_COUNT;
-            let binding_flags = [binding_flags];
-
-            let sampled_image_bindings = [vk::DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_count(binding_size)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .stage_flags(all_stages)];
-            let storage_image_bindings = [vk::DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_count(binding_size)
-                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-                .stage_flags(all_stages)];
-
-            let mut binding_flags_create_info =
-                vk::DescriptorSetLayoutBindingFlagsCreateInfo::default()
-                    .binding_flags(&binding_flags);
-
-            let sampled_image_descriptor_set_layout = device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::default()
-                        .bindings(&sampled_image_bindings)
-                        .flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
-                        .extend(&mut binding_flags_create_info),
-                    None,
-                )
-                .unwrap();
-            let storage_image_descriptor_set_layout = device
-                .create_descriptor_set_layout(
-                    &vk::DescriptorSetLayoutCreateInfo::default()
-                        .bindings(&storage_image_bindings)
-                        .flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
-                        .extend(&mut binding_flags_create_info),
-                    None,
-                )
-                .unwrap();
-
-            let layouts = [
-                sampled_image_descriptor_set_layout,
-                storage_image_descriptor_set_layout,
-            ];
-
-            let binding_sizes = [binding_size, binding_size];
-            let mut allocate_info = vk::DescriptorSetVariableDescriptorCountAllocateInfo::default()
-                .descriptor_counts(&binding_sizes);
-            let descriptor_sets = device
-                .allocate_descriptor_sets(
-                    &vk::DescriptorSetAllocateInfo::default()
-                        .descriptor_pool(descriptor_pool)
-                        .set_layouts(&layouts)
-                        .extend(&mut allocate_info),
-                )
-                .unwrap();
-            let descriptor_sets = *descriptor_sets.as_array::<2>().unwrap();
-
-            let pipeline_layout = device
-                .create_pipeline_layout(
-                    &vk::PipelineLayoutCreateInfo::default()
-                        .push_constant_ranges(&push_constant_ranges)
-                        .set_layouts(&layouts),
-                    None,
-                )
-                .unwrap();
-
-            Self {
-                descriptor_pool,
-                descriptor_sets,
-                descriptor_set_layouts: layouts,
-                pipeline_layout,
-            }
-        }
-    }
-
-    fn get_sampled_image_set(&self) -> vk::DescriptorSet {
-        self.descriptor_sets[0]
-    }
-
-    fn get_storage_image_set(&self) -> vk::DescriptorSet {
-        self.descriptor_sets[1]
-    }
-
-    fn destroy(&mut self, device: &ash::Device) {
-        unsafe {
-            device.destroy_pipeline_layout(self.pipeline_layout, None);
-            // Destroying the pool implicitly frees the descriptor sets allocated from it
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            for layout in self.descriptor_set_layouts {
-                device.destroy_descriptor_set_layout(layout, None);
-            }
-        }
-    }
-}
 
 pub struct ShaderIR<'a> {
     pub bytes: &'a [u32],
@@ -925,73 +791,6 @@ impl SwapchainDeviceRHI for Device {
     }
 }
 
-fn quantize(num: f32, min: f32, max: f32, bits: u32) -> u64 {
-    assert!(max > min);
-    assert!(bits > 0 && bits < 63);
-
-    let num = num.clamp(min, max);
-
-    let max_int = (1u64 << bits) - 1;
-    let t = (num - min) / (max - min);
-
-    (t as f64 * max_int as f64).round() as u64
-}
-
-impl Hash for SamplerInfo {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.mag_filter.hash(state);
-        self.min_filter.hash(state);
-        self.mipmap_mode.hash(state);
-        self.address_mode.hash(state);
-        let anisotropy = quantize(self.anisotropy, 1.0, 16.0, 32);
-        anisotropy.hash(state);
-        // Are these good values? Who knows!
-        let lod_bias = quantize(self.lod_bias, -1e6, 16.0, 32);
-        lod_bias.hash(state);
-        let lod_range_lo = quantize(self.lod_range[0], -1e6, 1e6, 32);
-        let lod_range_hi = quantize(self.lod_range[1], -1e6, 1e6, 32);
-        lod_range_lo.hash(state);
-        lod_range_hi.hash(state);
-        self.compare_op.hash(state);
-    }
-}
-
-impl Eq for SamplerInfo {}
-
-impl SamplerInfo {
-    fn to_vk(&self) -> vk::SamplerCreateInfo<'_> {
-        let anisotropy_enable = self.anisotropy > 1.0;
-        let max_anisotropy = if anisotropy_enable {
-            self.anisotropy
-        } else {
-            0.0
-        };
-        let compare_enable = self.compare_op.is_some();
-        let compare_op = if let Some(compare_op) = self.compare_op {
-            compare_op
-        } else {
-            CompareOp::Never // doesn't matter
-        };
-        vk::SamplerCreateInfo::default()
-            //.flags(vk::SamplerCreateFlags::DESCRIPTOR_BUFFER_CAPTURE_REPLAY_EXT)
-            .mag_filter(self.mag_filter.into())
-            .min_filter(self.min_filter.into())
-            .mipmap_mode(self.mipmap_mode.into())
-            .address_mode_u(self.address_mode[0].into())
-            .address_mode_v(self.address_mode[1].into())
-            .address_mode_w(self.address_mode[2].into())
-            .anisotropy_enable(anisotropy_enable)
-            .max_anisotropy(max_anisotropy)
-            .mip_lod_bias(self.lod_bias)
-            .min_lod(self.lod_range[0])
-            .max_lod(self.lod_range[1])
-            .compare_enable(compare_enable)
-            .compare_op(compare_op.into())
-            .border_color(vk::BorderColor::FLOAT_OPAQUE_WHITE)
-            .unnormalized_coordinates(false)
-    }
-}
-
 pub(super) struct DescriptorHeap {
     handle_counter: AtomicU64,
     buffers: HashMap<u64, Buffer>,
@@ -1271,64 +1070,8 @@ impl Buffer {
         }
     }
 
-    //#[allow(unused)]
-    //pub fn copy_to_buffer(&self, data: &[u8], dst_offset: u64) {
-    //    if data
-    //        .len()
-    //        .checked_add(dst_offset as usize)
-    //        .expect("Buffer offset overflow")
-    //        > self.len() as usize
-    //    {
-    //        panic!("")
-    //    }
-    //    unsafe {
-    //        // This is safe with &self because VMA uses an internal mutex
-    //        self.device
-    //            .allocator
-    //            .copy_memory_to_allocation(&self.allocation, data, dst_offset)
-    //            .unwrap();
-    //    }
-    //}
-
-    //#[allow(unused)]
-    //pub fn with_mapping(&mut self, f: impl FnOnce(&mut [u8])) {
-    //    // Safety: &mut self is required because calling any buffer function inside
-    //    // f would create aliasing &mut
-    //    unsafe {
-    //        let size = self.len();
-    //        let mapping = self
-    //            .device
-    //            .allocator
-    //            .map_memory(&mut self.allocation)
-    //            .unwrap();
-
-    //        let mapping = slice::from_raw_parts_mut(mapping, size as usize);
-    //        f(mapping);
-
-    //        self.device.allocator.unmap_memory(&mut self.allocation);
-    //    }
-    //}
-
     pub fn len(&self) -> u64 {
         self.size
-    }
-
-    #[allow(unused)]
-    fn device_address(&self, device: &DeviceHandles) -> vk::DeviceAddress {
-        unsafe {
-            let address = device.inner.get_buffer_device_address(
-                &vk::BufferDeviceAddressInfo::default().buffer(self.inner),
-            );
-
-            address
-        }
-    }
-
-    #[allow(unused)]
-    pub fn device_address_range(&self, device: &DeviceHandles) -> vk::DeviceAddressRangeKHR {
-        let address = self.device_address(device);
-        let size = self.len();
-        vk::DeviceAddressRangeKHR { address, size }
     }
 
     pub fn free_resources(mut self, device: &DeviceHandles) {

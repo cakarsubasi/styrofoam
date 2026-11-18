@@ -4,6 +4,8 @@ pub mod command;
 mod conversions;
 /// Debug messenger and object naming
 mod debug;
+/// Classic bindless descriptor fallback used when the descriptor heap feature is off
+mod descriptor_indexing;
 /// The device handle and constructors for handles obtained from the device
 pub mod device;
 /// Buffer handles
@@ -14,6 +16,8 @@ pub mod image;
 pub(crate) mod instance;
 /// Queues and their command pools
 pub mod queue;
+/// Sampler info conversions and hashing
+mod sampler;
 /// Semaphores
 pub mod semaphore;
 /// Swapchain, surface, and presentation related functionality
