@@ -1,0 +1,11 @@
+[package]
+name = "viking_room"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+styro-rhi.workspace = true
+winit.workspace = true
+image.workspace = true
+bytemuck.workspace = true
+obj.workspace = true
