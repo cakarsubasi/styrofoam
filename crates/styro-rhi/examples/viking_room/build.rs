@@ -14,11 +14,14 @@ fn compile(shader: &str, name: &str, extra_args: &[&str]) {
         .status()
         .expect("failed to run `slangc`; install the Vulkan SDK and make sure it is on PATH");
 
-    assert!(status.success(), "slangc failed to compile {shader} ({name})");
+    assert!(
+        status.success(),
+        "slangc failed to compile {shader} ({name})"
+    );
 }
 
 fn main() {
-    let shader = "src/texture.slang";
+    let shader = "src/mesh_3d.slang";
     println!("cargo:rerun-if-changed={shader}");
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -26,7 +29,7 @@ fn main() {
     // descriptors are 32 bytes apart (matching `styro_rhi::util::DESCRIPTOR_STRIDE`).
     compile(
         shader,
-        "texture_heap",
+        "mesh_3d_heap",
         &[
             "-DDESCRIPTOR_HEAP",
             "-capability",
@@ -43,5 +46,5 @@ fn main() {
     );
 
     // Classic bindless variant: an unbounded array of combined image samplers in descriptor set 0
-    compile(shader, "texture_classic", &[]);
+    compile(shader, "mesh_3d_classic", &[]);
 }

@@ -1,5 +1,17 @@
 struct PushData {
+    Ptr<float3> position;
+    Ptr<VertexData> vertex_data;
+    Ptr<Ubo> ubo;
     uint2 tex_id;
+};
+struct VertexData {
+    float3 normal;
+    float2 uv;
+};
+struct Ubo {
+    float4x4 model;
+    float4x4 view;
+    float4x4 proj;
 };
 
 #ifdef DESCRIPTOR_HEAP
@@ -16,22 +28,28 @@ Sampler2D get_texture(uint2 id) {
 
 struct VertexOutput {
     float4 sv_position : SV_Position;
+    float3 normal;
     float2 texture_uv;
 };
 
-static float2 positions[4] = float2[](
-    float2(-0.5, -0.5),
-    float2(0.5, -0.5),
-    float2(0.5, 0.5),
-    float2(-0.5, 0.5),
-);
 
 [shader("vertex")]
-VertexOutput vertMain(uint vid: SV_VertexID) {
-    let position = float4(positions[vid], 0.0, 1.0);
+VertexOutput vertMain(
+    uint vid: SV_VertexID,
+#ifdef DESCRIPTOR_HEAP
+    uniform PushData push
+#endif
+) {
+    let position = float4(*(push.position + vid), 1.0);
+
+    let m = mul(push.ubo->model, position);
+    let mv = mul(push.ubo->view, m);
+    let mvp = mul(push.ubo->proj, mv);
+    let data = *(push.vertex_data + vid);
     VertexOutput output;
-    output.sv_position = position;
-    output.texture_uv = position.xy + 0.5;
+    output.sv_position = mvp;
+    output.texture_uv = data.uv;
+    output.normal = data.normal;
     return output;
 }
 

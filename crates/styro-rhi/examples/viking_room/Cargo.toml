@@ -9,3 +9,4 @@ winit.workspace = true
 image.workspace = true
 bytemuck.workspace = true
 obj.workspace = true
+cgmath.workspace = true

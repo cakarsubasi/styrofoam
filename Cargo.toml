@@ -15,6 +15,8 @@ ash-window = { git = "https://github.com/ash-rs/ash.git", rev = "a9a1fb17e98a0cd
 # bytemuck is too useful not to use
 bytemuck = { version = "1.25.0", features = ["derive"] }
 
+cgmath = "0.18.0"
+
 egui = "0.34.3"
 egui-winit = "0.34.3"
 

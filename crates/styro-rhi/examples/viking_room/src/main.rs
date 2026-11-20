@@ -1,7 +1,7 @@
 //! Descriptor heaps are used when the physical device supports them. Pass `--classic` to force
 //! the classic bindless path.
-use std::{io::Cursor, ptr};
-
+use cgmath::{Matrix4, Vector3, perspective, point3, prelude::*};
+use std::{collections::HashMap, io::Cursor, ptr};
 use styro_rhi::{
     self as rhi, CommandRHI as _, DeviceRHI as _, QueueRHI as _, SwapchainCommandRHI as _,
     SwapchainDeviceRHI, SwapchainRHI as _, util,
@@ -17,9 +17,99 @@ use winit::{
 
 const FRAMES_IN_FLIGHT: u64 = 2;
 
-const QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
-
 const HEAP_DESCRIPTORS: usize = 64;
+
+/// Per vertex data that is not the position. Stored as an array of structs.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct VertexData {
+    normal: [f32; 3],
+    uv: [f32; 2],
+}
+
+struct Mesh {
+    positions: Vec<f32>,
+    indices: Vec<u32>,
+    vertex_data: Vec<VertexData>,
+}
+
+struct MeshGpu {
+    positions: rhi::GpuPtr,
+    positions_addr: u64,
+    indices: rhi::GpuPtr,
+    vertex_data: rhi::GpuPtr,
+    vertex_data_addr: u64,
+}
+
+/// Parse the obj into de-duplicated vertices. obj indexes positions, normals and texture coordinates
+/// separately, so every distinct `(position, texcoord, normal)` triple becomes one vertex.
+fn parse_obj(bytes: &[u8]) -> Mesh {
+    let model = obj::ObjData::load_buf(Cursor::new(bytes)).expect("Unable to parse obj");
+
+    let mut mesh = Mesh {
+        positions: Vec::new(),
+        indices: Vec::new(),
+        vertex_data: Vec::new(),
+    };
+    let mut seen: HashMap<(usize, Option<usize>, Option<usize>), u32> = HashMap::new();
+
+    for polygon in model
+        .objects
+        .iter()
+        .flat_map(|object| &object.groups)
+        .flat_map(|group| &group.polys)
+    {
+        let corners = &polygon.0;
+        // Triangulate as a fan, which is a no-op for triangles
+        for i in 1..corners.len().saturating_sub(1) {
+            for corner in [&corners[0], &corners[i], &corners[i + 1]] {
+                let key = (corner.0, corner.1, corner.2);
+                let index = *seen.entry(key).or_insert_with(|| {
+                    let index = mesh.vertex_data.len() as u32;
+                    mesh.positions.extend_from_slice(&model.position[corner.0]);
+                    // obj texture coordinates have their origin at the bottom left, Vulkan at the top left
+                    let uv = corner.1.map_or([0.0; 2], |t| {
+                        [model.texture[t][0], 1.0 - model.texture[t][1]]
+                    });
+                    mesh.vertex_data.push(VertexData {
+                        normal: corner.2.map_or([0.0; 3], |n| model.normal[n]),
+                        uv,
+                    });
+                    index
+                });
+                mesh.indices.push(index);
+            }
+        }
+    }
+    mesh
+}
+
+fn upload_data(device: &mut rhi::Device, data: &[u8]) -> rhi::GpuPtr {
+    let buffer = device.create_buffer(&rhi::BufferInfo {
+        memory: rhi::Memory::Upload,
+        size: data.len() as u64,
+        usage: rhi::BufferUsage::General,
+    });
+    unsafe {
+        ptr::copy_nonoverlapping(data.as_ptr(), device.buffer_host_addr(buffer), data.len());
+    }
+    buffer
+}
+
+/// Create the three mesh buffers
+fn create_mesh_buffers(device: &mut rhi::Device, mesh: &Mesh) -> MeshGpu {
+    let positions = upload_data(device, bytemuck::cast_slice(&mesh.positions));
+    let vertex_data = upload_data(device, bytemuck::cast_slice(&mesh.vertex_data));
+    let positions_addr = device.buffer_device_addr(positions);
+    let vertex_data_addr = device.buffer_device_addr(vertex_data);
+    MeshGpu {
+        positions,
+        vertex_data,
+        indices: upload_data(device, bytemuck::cast_slice(&mesh.indices)),
+        positions_addr,
+        vertex_data_addr,
+    }
+}
 
 #[derive(Default)]
 struct App {
@@ -37,8 +127,9 @@ struct Handles {
     pipeline: rhi::Pipeline,
     frame_index: u64,
     // scene
-    indices: rhi::GpuPtr,
-    _texture: rhi::GpuImage,
+    texture: rhi::GpuImage,
+    mesh: MeshGpu,
+    ubo: rhi::GpuPtr,
     bindless: TextureHeap,
 }
 
@@ -191,6 +282,35 @@ impl TextureHeap {
     }
 }
 
+#[repr(C)]
+struct Ubo {
+    model: Matrix4<f32>,
+    view: Matrix4<f32>,
+    proj: Matrix4<f32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::NoUninit)]
+struct Push {
+    pos: u64,
+    data: u64,
+    ubo: u64,
+    tex_id: [u32; 2],
+}
+
+impl Ubo {
+    fn new(time: f32, aspect_ratio: f32) -> Self {
+        let model = Matrix4::from_angle_z(cgmath::Deg::turn_div_4() * time);
+        let view = Matrix4::look_at_rh(
+            point3(2.0f32, 2.0f32, 2.0f32),
+            cgmath::Point3::origin(),
+            Vector3::unit_z(),
+        );
+        let proj = perspective(cgmath::Deg(45.0f32), aspect_ratio, 0.1f32, 10.0f32);
+        Ubo { model, view, proj }
+    }
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         if self.handles.is_none() {
@@ -280,13 +400,18 @@ impl ApplicationHandler for App {
 
             let semaphore = device.create_semaphore(0);
 
-            let indices = create_buffer_with_data(
-                &mut device,
-                rhi::BufferUsage::General,
-                bytemuck::cast_slice(&QUAD_INDICES),
+            let mesh = parse_obj(include_bytes!("viking_room.obj"));
+            println!(
+                "Parsed {} vertices and {} triangles",
+                mesh.vertex_data.len(),
+                mesh.indices.len() / 3
             );
-            let obj_bytes = include_bytes!("viking_room.obj");
-            let model = obj::ObjData::load_buf(Cursor::new(obj_bytes)).unwrap();
+            let mesh_buffers = create_mesh_buffers(&mut device, &mesh);
+            let ubo = device.create_buffer(&rhi::BufferInfo {
+                memory: rhi::Memory::Upload,
+                size: size_of::<Ubo>() as u64 * FRAMES_IN_FLIGHT,
+                usage: rhi::BufferUsage::General,
+            });
 
             let texture = upload_texture_blocking(&mut device, &mut queue, texture_format);
 
@@ -307,9 +432,9 @@ impl ApplicationHandler for App {
             );
 
             let spirv = if use_heaps {
-                include_bytes!(concat!(env!("OUT_DIR"), "/texture_heap.spv")).as_slice()
+                include_bytes!(concat!(env!("OUT_DIR"), "/mesh_3d_heap.spv")).as_slice()
             } else {
-                include_bytes!(concat!(env!("OUT_DIR"), "/texture_classic.spv")).as_slice()
+                include_bytes!(concat!(env!("OUT_DIR"), "/mesh_3d_classic.spv")).as_slice()
             };
             let text = rhi::read_spv(&mut std::io::Cursor::new(spirv)).unwrap();
             let pipeline = unsafe {
@@ -324,7 +449,7 @@ impl ApplicationHandler for App {
                     },
                     &rhi::RasterDescription {
                         color_formats: &[surface_format.format],
-                        cull: rhi::Cull::NONE,
+                        cull: rhi::Cull::CW,
                         blend_state: None,
                         ..Default::default()
                     },
@@ -339,8 +464,9 @@ impl ApplicationHandler for App {
                 semaphore,
                 pipeline,
                 frame_index: 1,
-                indices,
-                _texture: texture,
+                texture,
+                mesh: mesh_buffers,
+                ubo,
                 bindless,
             });
             if let Some(h) = &self.handles {
@@ -387,11 +513,23 @@ impl ApplicationHandler for App {
                         ..Default::default()
                     });
                     command_buffer.set_pipeline(pipeline);
-                    // Texture index 0 and sampler index 0. Sampler index is only used with descriptor heaps.
-                    let push_data: [u32; 2] = [0, 0];
+                    let ubo_addr = handles._device.buffer_device_addr(handles.ubo)
+                        + (command_pool * size_of::<Ubo>() as u64);
+                    let ubo_host = handles._device.buffer_host_addr(handles.ubo);
+                    unsafe {
+                        (ubo_host as *mut Ubo)
+                            .add(command_pool as usize)
+                            .write(Ubo::new(0.0, 800.0 / 600.0));
+                    }
+                    let push_data = Push {
+                        pos: handles.mesh.positions_addr,
+                        data: handles.mesh.vertex_data_addr,
+                        ubo: ubo_addr,
+                        tex_id: [0, 0],
+                    };
                     command_buffer.draw_indexed(
-                        bytemuck::cast_slice(&push_data),
-                        handles.indices,
+                        bytemuck::bytes_of(&push_data),
+                        handles.mesh.indices,
                         1,
                     );
                     command_buffer.end_rendering();
