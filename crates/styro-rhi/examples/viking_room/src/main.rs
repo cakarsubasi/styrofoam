@@ -6,7 +6,9 @@ use styro_rhi::{
     self as rhi, CommandRHI as _, DeviceRHI as _, QueueRHI as _, SwapchainCommandRHI as _,
     SwapchainDeviceRHI, SwapchainRHI as _,
 };
-use viking_room::{Mesh, TextureHeap, create_buffer_with_data, create_texture_blocking};
+use viking_room::{
+    Mesh, TextureHeap, choose_surface_format, create_buffer_with_data, create_texture_blocking,
+};
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
@@ -170,40 +172,14 @@ impl ApplicationHandler for App {
                 presentation: Some(raw_display_handle.into()),
             });
 
+            let mut queue =
+                device.create_queue(rhi::QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
+
             let window_data = unsafe {
                 rhi::WindowSystemData::from_raw_handles(raw_display_handle, raw_window_handle)
             };
 
-            let surface_formats = device.enumerate_surface_formats(&window_data);
-            let sdr_formats = || {
-                surface_formats
-                    .iter()
-                    .filter(|format| matches!(format.color_space, rhi::ColorSpace::SrgbNonlinear))
-            };
-            // Prefer an sRGB format, so the hardware encodes what the shader outputs
-            let surface_format = sdr_formats()
-                .find(|format| {
-                    matches!(
-                        format.format,
-                        rhi::Format::B8G8R8A8_Srgb | rhi::Format::R8G8B8A8_Srgb
-                    )
-                })
-                .or_else(|| sdr_formats().next())
-                .expect("No SDR capable surface.");
-            let surface_is_srgb = matches!(
-                surface_format.format,
-                rhi::Format::B8G8R8A8_Srgb | rhi::Format::R8G8B8A8_Srgb
-            );
-
-            let texture_format = if surface_is_srgb {
-                rhi::Format::R8G8B8A8_Srgb
-            } else {
-                rhi::Format::R8G8B8A8_Unorm
-            };
-
-            let mut queue =
-                device.create_queue(rhi::QueueType::Graphics, FRAMES_IN_FLIGHT as u32, 1);
-
+            let surface_format = choose_surface_format(&device, &window_data);
             let swapchain = device
                 .create_swapchain(
                     &queue,
@@ -217,12 +193,13 @@ impl ApplicationHandler for App {
                 )
                 .unwrap();
 
+            let depth_format = rhi::Format::D32_Sfloat;
             let depth_images = (0..FRAMES_IN_FLIGHT)
                 .map(|_| {
                     device.create_image(&rhi::ImageInfo {
                         ty: rhi::ImageType::Type2D,
                         dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
-                        format: rhi::Format::D32_Sfloat,
+                        format: depth_format,
                         usage: rhi::ImageUsage::Attachment,
                         ..Default::default()
                     })
@@ -245,7 +222,8 @@ impl ApplicationHandler for App {
             });
 
             let png = include_bytes!("viking_room.png");
-            let texture = create_texture_blocking(&mut device, &mut queue, png, texture_format);
+            let texture =
+                create_texture_blocking(&mut device, &mut queue, png, rhi::Format::R8G8B8A8_Srgb);
 
             let mut bindless = if use_heaps {
                 TextureHeap::new_descriptor_heap(&mut device)
@@ -257,10 +235,7 @@ impl ApplicationHandler for App {
                 &mut device,
                 0,
                 texture,
-                &rhi::SamplerInfo {
-                    address_mode: [rhi::SamplerAddressMode::ClampToEdge; 3],
-                    ..Default::default()
-                },
+                &rhi::SamplerInfo::default(),
             );
 
             let spirv = if use_heaps {
@@ -281,7 +256,7 @@ impl ApplicationHandler for App {
                     },
                     &rhi::RasterDescription {
                         color_formats: &[surface_format.format],
-                        depth_format: rhi::Format::D32_Sfloat,
+                        depth_format: depth_format,
                         cull: rhi::Cull::CW,
                         blend_state: None,
                         ..Default::default()
@@ -357,12 +332,12 @@ impl ApplicationHandler for App {
                         }),
                         ..Default::default()
                     });
-                    command_buffer.set_depth_stencil_state(&rhi::DepthStencilInfo {
+                    command_buffer.set_depth_stencil_state(Some(&rhi::DepthStencilInfo {
                         depth_read: true,
                         depth_write: true,
                         depth_test: rhi::CompareOp::Less,
                         ..Default::default()
-                    });
+                    }));
                     command_buffer.set_pipeline(pipeline);
                     let ubo_addr = handles.device.buffer_device_addr(handles.ubo)
                         + (command_pool * size_of::<Ubo>() as u64);

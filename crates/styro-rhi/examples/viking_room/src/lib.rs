@@ -1,9 +1,31 @@
 use std::ptr;
 use std::{collections::HashMap, io::Cursor};
-use styro_rhi as rhi;
 use styro_rhi::traits::*;
+use styro_rhi::{self as rhi, SwapchainDeviceRHI as _};
 
 use crate::TextureHeap::Heaps;
+
+pub fn choose_surface_format(
+    device: &rhi::Device,
+    window_data: &rhi::WindowSystemData,
+) -> rhi::SurfaceFormat {
+    let surface_formats = device.enumerate_surface_formats(&window_data);
+    let sdr_formats = || {
+        surface_formats
+            .iter()
+            .filter(|format| matches!(format.color_space, rhi::ColorSpace::SrgbNonlinear))
+    };
+    let surface_format = sdr_formats()
+        .find(|format| {
+            matches!(
+                format.format,
+                rhi::Format::B8G8R8A8_Srgb | rhi::Format::R8G8B8A8_Srgb
+            )
+        })
+        .or_else(|| sdr_formats().next())
+        .expect("No SDR capable surface.");
+    *surface_format
+}
 
 pub struct Mesh {
     pub positions: Vec<f32>,
