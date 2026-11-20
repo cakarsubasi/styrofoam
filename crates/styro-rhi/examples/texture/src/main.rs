@@ -155,24 +155,39 @@ impl TextureHeap {
         device: &mut rhi::Device,
         index: usize,
         texture: rhi::GpuImage,
+    ) {
+        match self {
+            TextureHeap::Classic => {
+                device.write_sampled_image_descriptor(index, texture);
+            }
+            TextureHeap::Heaps { resource_heap, .. } => {
+                // Updates the pointer so that it is aligned and can be bound
+                let mut resource_view = util::align_resource_heap(device, resource_heap);
+
+                let image_descriptor = device.get_image_descriptor(texture);
+                unsafe {
+                    resource_view.as_mut_sliced(0, 1)[index] = image_descriptor;
+                }
+            }
+        }
+    }
+
+    fn write_sampler_descriptor(
+        &mut self,
+        device: &mut rhi::Device,
+        index: usize,
         sampler: &rhi::SamplerInfo,
     ) {
         match self {
             TextureHeap::Classic => {
-                device.write_sampled_image_descriptor(index, texture, sampler);
+                device.write_sampler_descriptor(index, sampler);
             }
-            TextureHeap::Heaps {
-                resource_heap,
-                sampler_heap,
-            } => {
-                // Both of these update the pointers so that they are aligned and can be bound
-                let mut resource_view = util::align_resource_heap(device, resource_heap);
+            TextureHeap::Heaps { sampler_heap, .. } => {
+                // Updates the pointer so that it is aligned and can be bound
                 let mut sampler_view = util::align_sampler_heap(device, sampler_heap);
 
-                let image_descriptor = device.get_image_descriptor(texture);
                 let sampler_descriptor = device.get_sampler_descriptor(sampler);
                 unsafe {
-                    resource_view.as_mut_sliced(0, 1)[index] = image_descriptor;
                     sampler_view.as_mut_sliced(0, 1)[index] = sampler_descriptor;
                 }
             }
@@ -293,10 +308,10 @@ impl ApplicationHandler for App {
                 TextureHeap::new_classic(&mut device)
             };
 
-            bindless.write_sampled_image_descriptor(
+            bindless.write_sampled_image_descriptor(&mut device, 0, texture);
+            bindless.write_sampler_descriptor(
                 &mut device,
                 0,
-                texture,
                 &rhi::SamplerInfo {
                     address_mode: [rhi::SamplerAddressMode::ClampToEdge; 3],
                     ..Default::default()
@@ -384,7 +399,7 @@ impl ApplicationHandler for App {
                         ..Default::default()
                     });
                     command_buffer.set_pipeline(pipeline);
-                    // Texture index 0 and sampler index 0. Sampler index is only used with descriptor heaps.
+                    // Texture index 0 and sampler index 0.
                     let push_data: [u32; 2] = [0, 0];
                     command_buffer.draw_indexed(
                         bytemuck::cast_slice(&push_data),

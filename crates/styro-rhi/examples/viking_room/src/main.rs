@@ -231,12 +231,8 @@ impl ApplicationHandler for App {
                 TextureHeap::new_classic(&mut device)
             };
 
-            bindless.write_sampled_image_descriptor(
-                &mut device,
-                0,
-                texture,
-                &rhi::SamplerInfo::default(),
-            );
+            bindless.write_sampled_image_descriptor(&mut device, 0, texture);
+            bindless.write_sampler_descriptor(&mut device, 0, &rhi::SamplerInfo::default());
 
             let spirv = if use_heaps {
                 include_bytes!(concat!(env!("OUT_DIR"), "/mesh_3d_heap.spv")).as_slice()

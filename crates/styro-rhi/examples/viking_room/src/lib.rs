@@ -200,24 +200,39 @@ impl TextureHeap {
         device: &mut rhi::Device,
         index: usize,
         texture: rhi::GpuImage,
+    ) {
+        match self {
+            TextureHeap::Classic => {
+                device.write_sampled_image_descriptor(index, texture);
+            }
+            TextureHeap::Heaps { resource_heap, .. } => {
+                // Updates the pointer so that it is aligned and can be bound
+                let mut resource_view = rhi::util::align_resource_heap(device, resource_heap);
+
+                let image_descriptor = device.get_image_descriptor(texture);
+                unsafe {
+                    resource_view.as_mut_sliced(0, 1)[index] = image_descriptor;
+                }
+            }
+        }
+    }
+
+    pub fn write_sampler_descriptor(
+        &mut self,
+        device: &mut rhi::Device,
+        index: usize,
         sampler: &rhi::SamplerInfo,
     ) {
         match self {
             TextureHeap::Classic => {
-                device.write_sampled_image_descriptor(index, texture, sampler);
+                device.write_sampler_descriptor(index, sampler);
             }
-            TextureHeap::Heaps {
-                resource_heap,
-                sampler_heap,
-            } => {
-                // Both of these update the pointers so that they are aligned and can be bound
-                let mut resource_view = rhi::util::align_resource_heap(device, resource_heap);
+            TextureHeap::Heaps { sampler_heap, .. } => {
+                // Updates the pointer so that it is aligned and can be bound
                 let mut sampler_view = rhi::util::align_sampler_heap(device, sampler_heap);
 
-                let image_descriptor = device.get_image_descriptor(texture);
                 let sampler_descriptor = device.get_sampler_descriptor(sampler);
                 unsafe {
-                    resource_view.as_mut_sliced(0, 1)[index] = image_descriptor;
                     sampler_view.as_mut_sliced(0, 1)[index] = sampler_descriptor;
                 }
             }

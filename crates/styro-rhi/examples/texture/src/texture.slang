@@ -3,14 +3,15 @@ struct PushData {
 };
 
 #ifdef DESCRIPTOR_HEAP
-Sampler2D get_texture(uint2 id) {
-    return *Sampler2D.Handle(id);
+float4 sample_texture(uint2 id, float2 uv) {
+    return Sampler2D.Handle(id)->Sample(uv);
 }
 #else
-[[vk::binding(0, 0)]] Sampler2D textures[];
+[[vk::binding(0, 0)]] Texture2D textures[];
+[[vk::binding(0, 2)]] SamplerState samplers[];
 [[vk::push_constant]] ConstantBuffer<PushData> push;
-Sampler2D get_texture(uint2 id) {
-    return textures[NonUniformResourceIndex(id.x)];
+float4 sample_texture(uint2 id, float2 uv) {
+    return textures[NonUniformResourceIndex(id.x)].Sample(samplers[NonUniformResourceIndex(id.y)], uv);
 }
 #endif
 
@@ -43,5 +44,5 @@ float4 fragMain(
 #endif
     ) : SV_TARGET
 {
-    return get_texture(push.tex_id).Sample(vert.texture_uv);
+    return sample_texture(push.tex_id, vert.texture_uv);
 }

@@ -42,6 +42,6 @@ fn main() {
         ],
     );
 
-    // Classic bindless variant: an unbounded array of combined image samplers in descriptor set 0
+    // Classic bindless variant: unbounded arrays of sampled images in descriptor set 0 and samplers in descriptor set 2
     compile(shader, "texture_classic", &[]);
 }
