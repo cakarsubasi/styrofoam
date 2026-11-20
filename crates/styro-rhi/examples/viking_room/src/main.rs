@@ -1,11 +1,12 @@
 //! Descriptor heaps are used when the physical device supports them. Pass `--classic` to force
 //! the classic bindless path.
 use cgmath::{Matrix4, Vector3, perspective, point3, prelude::*};
-use std::{collections::HashMap, io::Cursor, ptr, time::Instant};
+use std::time::Instant;
 use styro_rhi::{
     self as rhi, CommandRHI as _, DeviceRHI as _, QueueRHI as _, SwapchainCommandRHI as _,
-    SwapchainDeviceRHI, SwapchainRHI as _, util,
+    SwapchainDeviceRHI, SwapchainRHI as _,
 };
+use viking_room::{Mesh, TextureHeap, create_buffer_with_data, create_texture_blocking};
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
@@ -17,21 +18,7 @@ use winit::{
 
 const FRAMES_IN_FLIGHT: u64 = 2;
 
-const HEAP_DESCRIPTORS: usize = 64;
-
-/// Per vertex data that is not the position. Stored as an array of structs.
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct VertexData {
-    normal: [f32; 3],
-    uv: [f32; 2],
-}
-
-struct Mesh {
-    positions: Vec<f32>,
-    indices: Vec<u32>,
-    vertex_data: Vec<VertexData>,
-}
+const PREFERRED_EXTENT: [u32; 2] = [1600, 900];
 
 struct MeshGpu {
     positions: rhi::GpuPtr,
@@ -41,73 +28,31 @@ struct MeshGpu {
     vertex_data_addr: u64,
 }
 
-/// Parse the obj into de-duplicated vertices. obj indexes positions, normals and texture coordinates
-/// separately, so every distinct `(position, texcoord, normal)` triple becomes one vertex.
-fn parse_obj(bytes: &[u8]) -> Mesh {
-    let model = obj::ObjData::load_buf(Cursor::new(bytes)).expect("Unable to parse obj");
-
-    let mut mesh = Mesh {
-        positions: Vec::new(),
-        indices: Vec::new(),
-        vertex_data: Vec::new(),
-    };
-    let mut seen: HashMap<(usize, Option<usize>, Option<usize>), u32> = HashMap::new();
-
-    for polygon in model
-        .objects
-        .iter()
-        .flat_map(|object| &object.groups)
-        .flat_map(|group| &group.polys)
-    {
-        let corners = &polygon.0;
-        // Triangulate as a fan, which is a no-op for triangles
-        for i in 1..corners.len().saturating_sub(1) {
-            for corner in [&corners[0], &corners[i], &corners[i + 1]] {
-                let key = (corner.0, corner.1, corner.2);
-                let index = *seen.entry(key).or_insert_with(|| {
-                    let index = mesh.vertex_data.len() as u32;
-                    mesh.positions.extend_from_slice(&model.position[corner.0]);
-                    // obj texture coordinates have their origin at the bottom left, Vulkan at the top left
-                    let uv = corner.1.map_or([0.0; 2], |t| {
-                        [model.texture[t][0], 1.0 - model.texture[t][1]]
-                    });
-                    mesh.vertex_data.push(VertexData {
-                        normal: corner.2.map_or([0.0; 3], |n| model.normal[n]),
-                        uv,
-                    });
-                    index
-                });
-                mesh.indices.push(index);
-            }
+impl MeshGpu {
+    fn new(device: &mut rhi::Device, mesh: &Mesh) -> MeshGpu {
+        let positions = create_buffer_with_data(
+            device,
+            rhi::BufferUsage::General,
+            bytemuck::cast_slice(&mesh.positions),
+        );
+        let vertex_data = create_buffer_with_data(
+            device,
+            rhi::BufferUsage::General,
+            bytemuck::cast_slice(&mesh.vertex_data),
+        );
+        let positions_addr = device.buffer_device_addr(positions);
+        let vertex_data_addr = device.buffer_device_addr(vertex_data);
+        MeshGpu {
+            positions,
+            vertex_data,
+            indices: create_buffer_with_data(
+                device,
+                rhi::BufferUsage::General,
+                bytemuck::cast_slice(&mesh.indices),
+            ),
+            positions_addr,
+            vertex_data_addr,
         }
-    }
-    mesh
-}
-
-fn upload_data(device: &mut rhi::Device, data: &[u8]) -> rhi::GpuPtr {
-    let buffer = device.create_buffer(&rhi::BufferInfo {
-        memory: rhi::Memory::Upload,
-        size: data.len() as u64,
-        usage: rhi::BufferUsage::General,
-    });
-    unsafe {
-        ptr::copy_nonoverlapping(data.as_ptr(), device.buffer_host_addr(buffer), data.len());
-    }
-    buffer
-}
-
-/// Create the three mesh buffers
-fn create_mesh_buffers(device: &mut rhi::Device, mesh: &Mesh) -> MeshGpu {
-    let positions = upload_data(device, bytemuck::cast_slice(&mesh.positions));
-    let vertex_data = upload_data(device, bytemuck::cast_slice(&mesh.vertex_data));
-    let positions_addr = device.buffer_device_addr(positions);
-    let vertex_data_addr = device.buffer_device_addr(vertex_data);
-    MeshGpu {
-        positions,
-        vertex_data,
-        indices: upload_data(device, bytemuck::cast_slice(&mesh.indices)),
-        positions_addr,
-        vertex_data_addr,
     }
 }
 
@@ -119,7 +64,7 @@ struct App {
 struct Handles {
     // renderer handles
     window: winit::window::Window,
-    _device: rhi::Device,
+    device: rhi::Device,
     queue: rhi::Queue,
     swapchain: rhi::Swapchain,
     // render state
@@ -135,160 +80,25 @@ struct Handles {
     bindless: TextureHeap,
 }
 
-/// How the texture is made available to shaders
-enum TextureHeap {
-    /// Classic bindless. Textures are accessed through a single descriptor set.
-    Classic,
-    /// Descriptor heaps. Textures are accessed through a user written descriptor heap.
-    Heaps {
-        resource_heap: rhi::GpuPtr,
-        sampler_heap: rhi::GpuPtr,
-    },
-}
+impl Drop for Handles {
+    fn drop(&mut self) {
+        let device = &mut self.device;
 
-fn create_buffer_with_data(
-    device: &mut rhi::Device,
-    usage: rhi::BufferUsage,
-    data: &[u8],
-) -> rhi::GpuPtr {
-    let buffer = device.create_buffer(&rhi::BufferInfo {
-        memory: rhi::Memory::Upload,
-        size: data.len() as u64,
-        usage,
-    });
-    unsafe {
-        ptr::copy_nonoverlapping(data.as_ptr(), device.buffer_host_addr(buffer), data.len());
-    }
-    buffer
-}
+        self.semaphore.wait(self.frame_index - 1);
 
-fn upload_texture_blocking(
-    device: &mut rhi::Device,
-    queue: &mut rhi::Queue,
-    format: rhi::Format,
-) -> rhi::GpuImage {
-    let png = include_bytes!("viking_room.png");
-    let pixels = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .expect("Unable to parse rust.png")
-        .to_rgba8();
-    let (width, height) = pixels.dimensions();
-
-    let texture = device.create_image(&rhi::ImageInfo {
-        dimensions: [width, height, 1],
-        format,
-        usage: rhi::ImageUsage::Sampled,
-        ..Default::default()
-    });
-    let staging = create_buffer_with_data(device, rhi::BufferUsage::General, pixels.as_raw());
-
-    // Can also transition to general instead one time, which should be optimal on most modern platforms
-    let upload_semaphore = device.create_semaphore(0);
-    let mut command_buffer = queue.begin_recording(0);
-    command_buffer.image_barrier(
-        rhi::Stage::TopOfPipe,
-        rhi::Stage::Transfer,
-        texture,
-        rhi::ImageLayout::TransferDstOptimal,
-    );
-    command_buffer.copy_to_image(staging, texture.full_region());
-    command_buffer.image_barrier(
-        rhi::Stage::Transfer,
-        rhi::Stage::FragmentShader,
-        texture,
-        rhi::ImageLayout::ShaderReadOnlyOptimal,
-    );
-    command_buffer.signal_after(rhi::Stage::BottomOfPipe, &upload_semaphore, 1);
-    unsafe { queue.submit(&[command_buffer]).unwrap() };
-
-    // Wait for the submission, after which the staging buffer is no longer in use
-    upload_semaphore.wait(1);
-    unsafe { device.destroy_buffer(staging) };
-
-    texture
-}
-
-impl TextureHeap {
-    fn new_classic(_device: &mut rhi::Device) -> Self {
-        return Self::Classic;
-    }
-
-    fn new_descriptor_heap(device: &mut rhi::Device) -> Self {
-        let props = device.get_descriptor_heap_properties();
-        let descriptors_total_size = (HEAP_DESCRIPTORS * util::DESCRIPTOR_STRIDE) as u64;
-        let res_alignment = props.resource_heap_alignment;
-        let sampler_alignment = props.sampler_heap_alignment;
-        let resource_size = (props.min_resource_heap_reserved_range + descriptors_total_size)
-            .div_ceil(res_alignment)
-            * res_alignment
-            + res_alignment;
-        let sampler_size = (props.min_sampler_heap_reserved_range + descriptors_total_size)
-            .div_ceil(sampler_alignment)
-            * sampler_alignment
-            + sampler_alignment;
-
-        let resource_heap = device.create_buffer(&rhi::BufferInfo {
-            memory: rhi::Memory::Upload,
-            size: resource_size,
-            usage: rhi::BufferUsage::DescriptorHeap,
-        });
-        let sampler_heap = device.create_buffer(&rhi::BufferInfo {
-            memory: rhi::Memory::Upload,
-            size: sampler_size,
-            usage: rhi::BufferUsage::DescriptorHeap,
-        });
-
-        Self::Heaps {
-            resource_heap,
-            sampler_heap,
-        }
-    }
-
-    fn write_sampled_image_descriptor(
-        &mut self,
-        device: &mut rhi::Device,
-        index: usize,
-        texture: rhi::GpuImage,
-        sampler: &rhi::SamplerInfo,
-    ) {
-        match self {
-            TextureHeap::Classic => {
-                device.write_sampled_image_descriptor(index, texture, sampler);
-            }
-            TextureHeap::Heaps {
-                resource_heap,
-                sampler_heap,
-            } => {
-                // Both of these update the pointers so that they are aligned and can be bound
-                let mut resource_view = util::align_resource_heap(device, resource_heap);
-                let mut sampler_view = util::align_sampler_heap(device, sampler_heap);
-
-                let image_descriptor = device.get_image_descriptor(texture);
-                let sampler_descriptor = device.get_sampler_descriptor(sampler);
-                unsafe {
-                    resource_view.as_mut_sliced(0, 1)[index] = image_descriptor;
-                    sampler_view.as_mut_sliced(0, 1)[index] = sampler_descriptor;
-                }
+        // Safety: uhhh
+        unsafe {
+            device.destroy_buffer(self.ubo);
+            device.destroy_buffer(self.mesh.indices);
+            device.destroy_buffer(self.mesh.positions);
+            device.destroy_buffer(self.mesh.vertex_data);
+            self.bindless.destroy(device);
+            device.destroy_image(self.texture);
+            for image in &self.depth_images {
+                device.destroy_image(*image);
             }
         }
     }
-
-    fn bind_heap(&mut self, command_buffer: &mut rhi::CommandBuffer) {
-        // Only user managed descriptor heaps need to be bound
-        if let TextureHeap::Heaps {
-            resource_heap,
-            sampler_heap,
-        } = self
-        {
-            command_buffer.bind_descriptor_heap(*resource_heap, *sampler_heap);
-        }
-    }
-}
-
-#[repr(C)]
-struct Ubo {
-    model: Matrix4<f32>,
-    view: Matrix4<f32>,
-    proj: Matrix4<f32>,
 }
 
 #[repr(C)]
@@ -298,6 +108,13 @@ struct Push {
     data: u64,
     ubo: u64,
     tex_id: [u32; 2],
+}
+
+#[repr(C)]
+struct Ubo {
+    model: Matrix4<f32>,
+    view: Matrix4<f32>,
+    proj: Matrix4<f32>,
 }
 
 impl Ubo {
@@ -319,8 +136,8 @@ impl ApplicationHandler for App {
             let window = event_loop
                 .create_window(WindowAttributes::default().with_inner_size(Size::Physical(
                     PhysicalSize {
-                        width: 1600,
-                        height: 1050,
+                        width: PREFERRED_EXTENT[0],
+                        height: PREFERRED_EXTENT[1],
                     },
                 )))
                 .expect("Unable to create window");
@@ -395,7 +212,7 @@ impl ApplicationHandler for App {
                         size: FRAMES_IN_FLIGHT as u32,
                         format: surface_format.format,
                         color_space: surface_format.color_space,
-                        preferred_extent: [1600, 1050],
+                        preferred_extent: PREFERRED_EXTENT,
                     },
                 )
                 .unwrap();
@@ -404,7 +221,7 @@ impl ApplicationHandler for App {
                 .map(|_| {
                     device.create_image(&rhi::ImageInfo {
                         ty: rhi::ImageType::Type2D,
-                        dimensions: [1600, 1050, 1],
+                        dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
                         format: rhi::Format::D32_Sfloat,
                         usage: rhi::ImageUsage::Attachment,
                         ..Default::default()
@@ -414,20 +231,21 @@ impl ApplicationHandler for App {
 
             let semaphore = device.create_semaphore(0);
 
-            let mesh = parse_obj(include_bytes!("viking_room.obj"));
+            let mesh = Mesh::from_obj_bytes(include_bytes!("viking_room.obj"));
             println!(
                 "Parsed {} vertices and {} triangles",
                 mesh.vertex_data.len(),
                 mesh.indices.len() / 3
             );
-            let mesh_buffers = create_mesh_buffers(&mut device, &mesh);
+            let mesh_buffers = MeshGpu::new(&mut device, &mesh);
             let ubo = device.create_buffer(&rhi::BufferInfo {
                 memory: rhi::Memory::Upload,
                 size: size_of::<Ubo>() as u64 * FRAMES_IN_FLIGHT,
                 usage: rhi::BufferUsage::General,
             });
 
-            let texture = upload_texture_blocking(&mut device, &mut queue, texture_format);
+            let png = include_bytes!("viking_room.png");
+            let texture = create_texture_blocking(&mut device, &mut queue, png, texture_format);
 
             let mut bindless = if use_heaps {
                 TextureHeap::new_descriptor_heap(&mut device)
@@ -473,7 +291,7 @@ impl ApplicationHandler for App {
 
             self.handles = Some(Handles {
                 window,
-                _device: device,
+                device,
                 queue,
                 swapchain,
                 semaphore,
@@ -546,9 +364,9 @@ impl ApplicationHandler for App {
                         ..Default::default()
                     });
                     command_buffer.set_pipeline(pipeline);
-                    let ubo_addr = handles._device.buffer_device_addr(handles.ubo)
+                    let ubo_addr = handles.device.buffer_device_addr(handles.ubo)
                         + (command_pool * size_of::<Ubo>() as u64);
-                    let ubo_host = handles._device.buffer_host_addr(handles.ubo);
+                    let ubo_host = handles.device.buffer_host_addr(handles.ubo);
                     let elapsed = handles.start.elapsed().as_millis() as f64 / 1000.0;
                     unsafe {
                         (ubo_host as *mut Ubo)
