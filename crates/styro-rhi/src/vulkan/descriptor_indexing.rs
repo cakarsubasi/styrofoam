@@ -3,8 +3,8 @@ use ash::vk::TaggedStructure as _;
 
 pub(super) struct DescriptorIndexingData {
     descriptor_pool: vk::DescriptorPool,
-    pub descriptor_sets: [vk::DescriptorSet; 2],
-    descriptor_set_layouts: [vk::DescriptorSetLayout; 2],
+    pub descriptor_sets: [vk::DescriptorSet; 3],
+    descriptor_set_layouts: [vk::DescriptorSetLayout; 3],
     pub pipeline_layout: vk::PipelineLayout,
 }
 
@@ -20,11 +20,14 @@ impl DescriptorIndexingData {
             let descriptor_pool = device
                 .create_descriptor_pool(
                     &vk::DescriptorPoolCreateInfo::default()
-                        .max_sets(2)
+                        .max_sets(3)
                         .flags(vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND)
                         .pool_sizes(&[
                             vk::DescriptorPoolSize::default()
-                                .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                                .ty(vk::DescriptorType::SAMPLED_IMAGE)
+                                .descriptor_count(binding_size),
+                            vk::DescriptorPoolSize::default()
+                                .ty(vk::DescriptorType::SAMPLER)
                                 .descriptor_count(binding_size),
                             vk::DescriptorPoolSize::default()
                                 .ty(vk::DescriptorType::STORAGE_IMAGE)
@@ -48,7 +51,12 @@ impl DescriptorIndexingData {
             let sampled_image_bindings = [vk::DescriptorSetLayoutBinding::default()
                 .binding(0)
                 .descriptor_count(binding_size)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                .stage_flags(all_stages)];
+            let sampler_bindings = [vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_count(binding_size)
+                .descriptor_type(vk::DescriptorType::SAMPLER)
                 .stage_flags(all_stages)];
             let storage_image_bindings = [vk::DescriptorSetLayoutBinding::default()
                 .binding(0)
@@ -79,12 +87,23 @@ impl DescriptorIndexingData {
                 )
                 .unwrap();
 
+            let sampler_descriptor_set_layout = device
+                .create_descriptor_set_layout(
+                    &vk::DescriptorSetLayoutCreateInfo::default()
+                        .bindings(&sampler_bindings)
+                        .flags(vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL)
+                        .extend(&mut binding_flags_create_info),
+                    None,
+                )
+                .unwrap();
+
             let layouts = [
                 sampled_image_descriptor_set_layout,
                 storage_image_descriptor_set_layout,
+                sampler_descriptor_set_layout,
             ];
 
-            let binding_sizes = [binding_size, binding_size];
+            let binding_sizes = [binding_size; 3];
             let mut allocate_info = vk::DescriptorSetVariableDescriptorCountAllocateInfo::default()
                 .descriptor_counts(&binding_sizes);
             let descriptor_sets = device
@@ -95,7 +114,7 @@ impl DescriptorIndexingData {
                         .extend(&mut allocate_info),
                 )
                 .unwrap();
-            let descriptor_sets = *descriptor_sets.as_array::<2>().unwrap();
+            let descriptor_sets = *descriptor_sets.as_array::<3>().unwrap();
 
             let pipeline_layout = device
                 .create_pipeline_layout(
@@ -121,6 +140,10 @@ impl DescriptorIndexingData {
 
     pub(super) fn get_storage_image_set(&self) -> vk::DescriptorSet {
         self.descriptor_sets[1]
+    }
+
+    pub(super) fn get_sampler_set(&self) -> vk::DescriptorSet {
+        self.descriptor_sets[2]
     }
 
     pub(super) fn destroy(&mut self, device: &ash::Device) {

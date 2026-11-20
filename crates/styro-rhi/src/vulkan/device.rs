@@ -660,21 +660,18 @@ impl DeviceRHI for Device {
         &mut self,
         index: usize,
         image: GpuImage,
-        sampler: &SamplerInfo,
     ) {
         let device = self.device();
         let heap = self.heap.read().unwrap();
         if let Some(ref descriptors) = self.handles.descriptor_indexing {
             unsafe {
                 let descriptor_set = descriptors.get_sampled_image_set();
-                let descriptor_type = vk::DescriptorType::COMBINED_IMAGE_SAMPLER;
+                let descriptor_type = vk::DescriptorType::SAMPLED_IMAGE;
 
-                let sampler = heap.get_or_create_sampler(sampler);
                 let image = heap.get_image(image);
                 let image_info = [vk::DescriptorImageInfo::default()
                     .image_layout(image.current_layout.get())
-                    .image_view(image.view.unwrap())
-                    .sampler(sampler)];
+                    .image_view(image.view.unwrap())];
 
                 let descriptor_writes = [vk::WriteDescriptorSet::default()
                     .descriptor_count(1)
@@ -682,6 +679,27 @@ impl DeviceRHI for Device {
                     .dst_binding(0)
                     .dst_array_element(index as u32)
                     .descriptor_type(descriptor_type)
+                    .image_info(&image_info)];
+
+                device.update_descriptor_sets(&descriptor_writes, &[]);
+            }
+        }
+    }
+
+    fn write_sampler_descriptor(&mut self, index: usize, sampler: &SamplerInfo) {
+        let device = self.device();
+        let heap = self.heap.read().unwrap();
+        if let Some(ref descriptors) = self.handles.descriptor_indexing {
+            unsafe {
+                let sampler = heap.get_or_create_sampler(sampler);
+                let image_info = [vk::DescriptorImageInfo::default().sampler(sampler)];
+
+                let descriptor_writes = [vk::WriteDescriptorSet::default()
+                    .descriptor_count(1)
+                    .dst_set(descriptors.get_sampler_set())
+                    .dst_binding(0)
+                    .dst_array_element(index as u32)
+                    .descriptor_type(vk::DescriptorType::SAMPLER)
                     .image_info(&image_info)];
 
                 device.update_descriptor_sets(&descriptor_writes, &[]);

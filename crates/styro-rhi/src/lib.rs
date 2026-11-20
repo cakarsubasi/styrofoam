@@ -880,13 +880,14 @@ pub trait DeviceRHI {
     /// - `image` must be a sampled image
     /// - `image` must be live
     /// - `image` must not be in the undefined layout
+    fn write_sampled_image_descriptor(&mut self, idx: usize, image: GpuImage);
+
+    /// Write a sampler descriptor to the managed descriptor heap
+    ///
+    /// # Valid usage
+    /// - `idx` must be lower than the maximum number of descriptors
     /// - `sampler` must be a valid [SamplerInfo] structure
-    fn write_sampled_image_descriptor(
-        &mut self,
-        idx: usize,
-        image: GpuImage,
-        sampler: &SamplerInfo,
-    );
+    fn write_sampler_descriptor(&mut self, idx: usize, sampler: &SamplerInfo);
 
     /// Write a storage image descriptor to the managed descriptor heap
     ///
