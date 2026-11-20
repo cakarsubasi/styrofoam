@@ -818,7 +818,253 @@ impl From<vk::Format> for Format {
 }
 
 impl Format {
-    pub(crate) fn is_depth_format(&self) -> bool {
+    /// Returns true if the format stores sRGB-encoded normalized values (`*_SRGB`).
+    pub const fn is_srgb(&self) -> bool {
+        matches!(
+            self,
+            Format::R8_Srgb
+                | Format::R8G8_Srgb
+                | Format::R8G8B8_Srgb
+                | Format::B8G8R8_Srgb
+                | Format::R8G8B8A8_Srgb
+                | Format::B8G8R8A8_Srgb
+                | Format::A8B8G8R8_Srgb_Pack32
+                | Format::BC1_RGB_Srgb_Block
+                | Format::BC1_RGBA_Srgb_Block
+                | Format::BC2_Srgb_Block
+                | Format::BC3_Srgb_Block
+                | Format::BC7_Srgb_Block
+                | Format::ETC2_R8G8B8_Srgb_Block
+                | Format::ETC2_R8G8B8A1_Srgb_Block
+                | Format::ETC2_R8G8B8A8_Srgb_Block
+                | Format::ASTC_4X4_Srgb_Block
+                | Format::ASTC_5X4_Srgb_Block
+                | Format::ASTC_5X5_Srgb_Block
+                | Format::ASTC_6X5_Srgb_Block
+                | Format::ASTC_6X6_Srgb_Block
+                | Format::ASTC_8X5_Srgb_Block
+                | Format::ASTC_8X6_Srgb_Block
+                | Format::ASTC_8X8_Srgb_Block
+                | Format::ASTC_10X5_Srgb_Block
+                | Format::ASTC_10X6_Srgb_Block
+                | Format::ASTC_10X8_Srgb_Block
+                | Format::ASTC_10X10_Srgb_Block
+                | Format::ASTC_12X10_Srgb_Block
+                | Format::ASTC_12X12_Srgb_Block
+        )
+    }
+
+    /// Returns true if the format stores unsigned normalized values (`*_UNORM`), including depth and multi-planar formats.
+    pub const fn is_unorm(&self) -> bool {
+        matches!(
+            self,
+            Format::R4G4_Unorm_Pack8
+                | Format::R4G4B4A4_Unorm_Pack16
+                | Format::B4G4R4A4_Unorm_Pack16
+                | Format::R5G6B5_Unorm_Pack16
+                | Format::B5G6R5_Unorm_Pack16
+                | Format::R5G5B5A1_Unorm_Pack16
+                | Format::B5G5R5A1_Unorm_Pack16
+                | Format::A1R5G5B5_Unorm_Pack16
+                | Format::R8_Unorm
+                | Format::R8G8_Unorm
+                | Format::R8G8B8_Unorm
+                | Format::B8G8R8_Unorm
+                | Format::R8G8B8A8_Unorm
+                | Format::B8G8R8A8_Unorm
+                | Format::A8B8G8R8_Unorm_Pack32
+                | Format::A2R10G10B10_Unorm_Pack32
+                | Format::A2B10G10R10_Unorm_Pack32
+                | Format::R16_Unorm
+                | Format::R16G16_Unorm
+                | Format::R16G16B16_Unorm
+                | Format::R16G16B16A16_Unorm
+                | Format::D16_Unorm
+                | Format::X8_D24_Unorm_Pack32
+                | Format::D16_Unorm_S8_Uint
+                | Format::D24_Unorm_S8_Uint
+                | Format::BC1_RGB_Unorm_Block
+                | Format::BC1_RGBA_Unorm_Block
+                | Format::BC2_Unorm_Block
+                | Format::BC3_Unorm_Block
+                | Format::BC4_Unorm_Block
+                | Format::BC5_Unorm_Block
+                | Format::BC7_Unorm_Block
+                | Format::ETC2_R8G8B8_Unorm_Block
+                | Format::ETC2_R8G8B8A1_Unorm_Block
+                | Format::ETC2_R8G8B8A8_Unorm_Block
+                | Format::EAC_R11_Unorm_Block
+                | Format::EAC_R11G11_Unorm_Block
+                | Format::ASTC_4X4_Unorm_Block
+                | Format::ASTC_5X4_Unorm_Block
+                | Format::ASTC_5X5_Unorm_Block
+                | Format::ASTC_6X5_Unorm_Block
+                | Format::ASTC_6X6_Unorm_Block
+                | Format::ASTC_8X5_Unorm_Block
+                | Format::ASTC_8X6_Unorm_Block
+                | Format::ASTC_8X8_Unorm_Block
+                | Format::ASTC_10X5_Unorm_Block
+                | Format::ASTC_10X6_Unorm_Block
+                | Format::ASTC_10X8_Unorm_Block
+                | Format::ASTC_10X10_Unorm_Block
+                | Format::ASTC_12X10_Unorm_Block
+                | Format::ASTC_12X12_Unorm_Block
+                | Format::G8B8G8R8_422_Unorm
+                | Format::B8G8R8G8_422_Unorm
+                | Format::G8_B8_R8_3PLANE_420_Unorm
+                | Format::G8_B8R8_2PLANE_420_Unorm
+                | Format::G8_B8_R8_3PLANE_422_Unorm
+                | Format::G8_B8R8_2PLANE_422_Unorm
+                | Format::G8_B8_R8_3PLANE_444_Unorm
+                | Format::R10X6_Unorm_Pack16
+                | Format::R10X6G10X6_Unorm_2PACK16
+                | Format::R10X6G10X6B10X6A10X6_Unorm_4PACK16
+                | Format::G10X6B10X6G10X6R10X6_422_Unorm_4PACK16
+                | Format::B10X6G10X6R10X6G10X6_422_Unorm_4PACK16
+                | Format::G10X6_B10X6_R10X6_3PLANE_420_Unorm_3PACK16
+                | Format::G10X6_B10X6R10X6_2PLANE_420_Unorm_3PACK16
+                | Format::G10X6_B10X6_R10X6_3PLANE_422_Unorm_3PACK16
+                | Format::G10X6_B10X6R10X6_2PLANE_422_Unorm_3PACK16
+                | Format::G10X6_B10X6_R10X6_3PLANE_444_Unorm_3PACK16
+                | Format::R12X4_Unorm_Pack16
+                | Format::R12X4G12X4_Unorm_2PACK16
+                | Format::R12X4G12X4B12X4A12X4_Unorm_4PACK16
+                | Format::G12X4B12X4G12X4R12X4_422_Unorm_4PACK16
+                | Format::B12X4G12X4R12X4G12X4_422_Unorm_4PACK16
+                | Format::G12X4_B12X4_R12X4_3PLANE_420_Unorm_3PACK16
+                | Format::G12X4_B12X4R12X4_2PLANE_420_Unorm_3PACK16
+                | Format::G12X4_B12X4_R12X4_3PLANE_422_Unorm_3PACK16
+                | Format::G12X4_B12X4R12X4_2PLANE_422_Unorm_3PACK16
+                | Format::G12X4_B12X4_R12X4_3PLANE_444_Unorm_3PACK16
+                | Format::G16B16G16R16_422_Unorm
+                | Format::B16G16R16G16_422_Unorm
+                | Format::G16_B16_R16_3PLANE_420_Unorm
+                | Format::G16_B16R16_2PLANE_420_Unorm
+                | Format::G16_B16_R16_3PLANE_422_Unorm
+                | Format::G16_B16R16_2PLANE_422_Unorm
+                | Format::G16_B16_R16_3PLANE_444_Unorm
+                | Format::G8_B8R8_2PLANE_444_Unorm
+                | Format::G10X6_B10X6R10X6_2PLANE_444_Unorm_3PACK16
+                | Format::G12X4_B12X4R12X4_2PLANE_444_Unorm_3PACK16
+                | Format::G16_B16R16_2PLANE_444_Unorm
+                | Format::A4R4G4B4_Unorm_Pack16
+                | Format::A4B4G4R4_Unorm_Pack16
+                | Format::A1B5G5R5_Unorm_Pack16
+                | Format::A8_Unorm
+        )
+    }
+
+    /// Returns true if the format stores signed normalized values (`*_SNORM`).
+    pub const fn is_snorm(&self) -> bool {
+        matches!(
+            self,
+            Format::R8_Snorm
+                | Format::R8G8_Snorm
+                | Format::R8G8B8_Snorm
+                | Format::B8G8R8_Snorm
+                | Format::R8G8B8A8_Snorm
+                | Format::B8G8R8A8_Snorm
+                | Format::A8B8G8R8_Snorm_Pack32
+                | Format::A2R10G10B10_Snorm_Pack32
+                | Format::A2B10G10R10_Snorm_Pack32
+                | Format::R16_Snorm
+                | Format::R16G16_Snorm
+                | Format::R16G16B16_Snorm
+                | Format::R16G16B16A16_Snorm
+                | Format::BC4_Snorm_Block
+                | Format::BC5_Snorm_Block
+                | Format::EAC_R11_Snorm_Block
+                | Format::EAC_R11G11_Snorm_Block
+        )
+    }
+    /// Returns true if the format stores unsigned scaled integers (`*_USCALED`).
+    pub const fn is_uscaled(&self) -> bool {
+        matches!(
+            self,
+            Format::R8_Uscaled
+                | Format::R8G8_Uscaled
+                | Format::R8G8B8_Uscaled
+                | Format::B8G8R8_Uscaled
+                | Format::R8G8B8A8_Uscaled
+                | Format::B8G8R8A8_Uscaled
+                | Format::A8B8G8R8_Uscaled_Pack32
+                | Format::A2R10G10B10_Uscaled_Pack32
+                | Format::A2B10G10R10_Uscaled_Pack32
+                | Format::R16_Uscaled
+                | Format::R16G16_Uscaled
+                | Format::R16G16B16_Uscaled
+                | Format::R16G16B16A16_Uscaled
+        )
+    }
+
+    /// Returns true if the format stores signed scaled integers (`*_SSCALED`).
+    pub const fn is_sscaled(&self) -> bool {
+        matches!(
+            self,
+            Format::R8_Sscaled
+                | Format::R8G8_Sscaled
+                | Format::R8G8B8_Sscaled
+                | Format::B8G8R8_Sscaled
+                | Format::R8G8B8A8_Sscaled
+                | Format::B8G8R8A8_Sscaled
+                | Format::A8B8G8R8_Sscaled_Pack32
+                | Format::A2R10G10B10_Sscaled_Pack32
+                | Format::A2B10G10R10_Sscaled_Pack32
+                | Format::R16_Sscaled
+                | Format::R16G16_Sscaled
+                | Format::R16G16B16_Sscaled
+                | Format::R16G16B16A16_Sscaled
+        )
+    }
+
+    /// Returns true if the format stores signed floating-point values (`*_SFLOAT`), including depth and ASTC HDR formats.
+    pub const fn is_sfloat(&self) -> bool {
+        matches!(
+            self,
+            Format::R16_Sfloat
+                | Format::R16G16_Sfloat
+                | Format::R16G16B16_Sfloat
+                | Format::R16G16B16A16_Sfloat
+                | Format::R32_Sfloat
+                | Format::R32G32_Sfloat
+                | Format::R32G32B32_Sfloat
+                | Format::R32G32B32A32_Sfloat
+                | Format::R64_Sfloat
+                | Format::R64G64_Sfloat
+                | Format::R64G64B64_Sfloat
+                | Format::R64G64B64A64_Sfloat
+                | Format::D32_Sfloat
+                | Format::D32_Sfloat_S8_Uint
+                | Format::BC6H_Sfloat_Block
+                | Format::ASTC_4X4_Sfloat_Block
+                | Format::ASTC_5X4_Sfloat_Block
+                | Format::ASTC_5X5_Sfloat_Block
+                | Format::ASTC_6X5_Sfloat_Block
+                | Format::ASTC_6X6_Sfloat_Block
+                | Format::ASTC_8X5_Sfloat_Block
+                | Format::ASTC_8X6_Sfloat_Block
+                | Format::ASTC_8X8_Sfloat_Block
+                | Format::ASTC_10X5_Sfloat_Block
+                | Format::ASTC_10X6_Sfloat_Block
+                | Format::ASTC_10X8_Sfloat_Block
+                | Format::ASTC_10X10_Sfloat_Block
+                | Format::ASTC_12X10_Sfloat_Block
+                | Format::ASTC_12X12_Sfloat_Block
+        )
+    }
+
+    /// Returns true if the format stores unsigned floating-point values (`*_UFLOAT`).
+    pub const fn is_ufloat(&self) -> bool {
+        matches!(
+            self,
+            Format::B10G11R11_Ufloat_Pack32
+                | Format::E5B9G9R9_Ufloat_Pack32
+                | Format::BC6H_Ufloat_Block
+        )
+    }
+
+    /// Returns true if the format can be used as a depth attachment.
+    pub const fn is_depth_format(&self) -> bool {
         matches!(
             self,
             Format::D16_Unorm
@@ -830,6 +1076,7 @@ impl Format {
         )
     }
 
+    /// Returns true if the format can be used as a stencil attachment.
     pub(crate) fn is_stencil_format(&self) -> bool {
         matches!(
             self,
