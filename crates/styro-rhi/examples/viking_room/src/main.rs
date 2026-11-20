@@ -1,7 +1,7 @@
 //! Descriptor heaps are used when the physical device supports them. Pass `--classic` to force
 //! the classic bindless path.
 use cgmath::{Matrix4, Vector3, perspective, point3, prelude::*};
-use std::{collections::HashMap, io::Cursor, ptr};
+use std::{collections::HashMap, io::Cursor, ptr, time::Instant};
 use styro_rhi::{
     self as rhi, CommandRHI as _, DeviceRHI as _, QueueRHI as _, SwapchainCommandRHI as _,
     SwapchainDeviceRHI, SwapchainRHI as _, util,
@@ -125,7 +125,9 @@ struct Handles {
     // render state
     semaphore: rhi::Semaphore,
     pipeline: rhi::Pipeline,
+    start: Instant,
     frame_index: u64,
+    depth_images: Vec<rhi::GpuImage>,
     // scene
     texture: rhi::GpuImage,
     mesh: MeshGpu,
@@ -304,7 +306,7 @@ impl Ubo {
         let view = Matrix4::look_at_rh(
             point3(2.0f32, 2.0f32, 2.0f32),
             cgmath::Point3::origin(),
-            Vector3::unit_z(),
+            -Vector3::unit_z(),
         );
         let proj = perspective(cgmath::Deg(45.0f32), aspect_ratio, 0.1f32, 10.0f32);
         Ubo { model, view, proj }
@@ -317,8 +319,8 @@ impl ApplicationHandler for App {
             let window = event_loop
                 .create_window(WindowAttributes::default().with_inner_size(Size::Physical(
                     PhysicalSize {
-                        width: 800,
-                        height: 600,
+                        width: 1600,
+                        height: 1050,
                     },
                 )))
                 .expect("Unable to create window");
@@ -393,10 +395,22 @@ impl ApplicationHandler for App {
                         size: FRAMES_IN_FLIGHT as u32,
                         format: surface_format.format,
                         color_space: surface_format.color_space,
-                        preferred_extent: [800, 600],
+                        preferred_extent: [1600, 1050],
                     },
                 )
                 .unwrap();
+
+            let depth_images = (0..FRAMES_IN_FLIGHT)
+                .map(|_| {
+                    device.create_image(&rhi::ImageInfo {
+                        ty: rhi::ImageType::Type2D,
+                        dimensions: [1600, 1050, 1],
+                        format: rhi::Format::D32_Sfloat,
+                        usage: rhi::ImageUsage::Attachment,
+                        ..Default::default()
+                    })
+                })
+                .collect();
 
             let semaphore = device.create_semaphore(0);
 
@@ -449,6 +463,7 @@ impl ApplicationHandler for App {
                     },
                     &rhi::RasterDescription {
                         color_formats: &[surface_format.format],
+                        depth_format: rhi::Format::D32_Sfloat,
                         cull: rhi::Cull::CW,
                         blend_state: None,
                         ..Default::default()
@@ -463,11 +478,13 @@ impl ApplicationHandler for App {
                 swapchain,
                 semaphore,
                 pipeline,
+                start: Instant::now(),
                 frame_index: 1,
                 texture,
                 mesh: mesh_buffers,
                 ubo,
                 bindless,
+                depth_images,
             });
             if let Some(h) = &self.handles {
                 h.window.request_redraw();
@@ -493,7 +510,11 @@ impl ApplicationHandler for App {
                     let semaphore = &mut handles.semaphore;
                     let pipeline = &mut handles.pipeline;
 
+                    let size = handles.window.inner_size();
+                    let aspect_ratio = size.width as f32 / size.height as f32;
+
                     let command_pool = *frame_index % FRAMES_IN_FLIGHT;
+                    let depth_buffer = handles.depth_images[command_pool as usize];
 
                     if *frame_index > FRAMES_IN_FLIGHT {
                         semaphore.wait(*frame_index - FRAMES_IN_FLIGHT)
@@ -510,16 +531,29 @@ impl ApplicationHandler for App {
                             image: swapchain_image,
                             ..Default::default()
                         }],
+                        depth_attachment: Some(rhi::Attachment {
+                            image: depth_buffer,
+                            load_op: rhi::LoadOp::Clear,
+                            store_op: rhi::StoreOp::DontCare,
+                            clear_value: rhi::Clear::DepthStencil(1.0, 0),
+                        }),
+                        ..Default::default()
+                    });
+                    command_buffer.set_depth_stencil_state(&rhi::DepthStencilInfo {
+                        depth_read: true,
+                        depth_write: true,
+                        depth_test: rhi::CompareOp::Less,
                         ..Default::default()
                     });
                     command_buffer.set_pipeline(pipeline);
                     let ubo_addr = handles._device.buffer_device_addr(handles.ubo)
                         + (command_pool * size_of::<Ubo>() as u64);
                     let ubo_host = handles._device.buffer_host_addr(handles.ubo);
+                    let elapsed = handles.start.elapsed().as_millis() as f64 / 1000.0;
                     unsafe {
                         (ubo_host as *mut Ubo)
                             .add(command_pool as usize)
-                            .write(Ubo::new(0.0, 800.0 / 600.0));
+                            .write(Ubo::new(elapsed as f32, aspect_ratio));
                     }
                     let push_data = Push {
                         pos: handles.mesh.positions_addr,
