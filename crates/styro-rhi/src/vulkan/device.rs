@@ -340,11 +340,15 @@ impl DeviceRHI for Device {
             vk::DynamicState::VIEWPORT,
             vk::DynamicState::SCISSOR,
             // depth state is always dynamic
-            vk::DynamicState::DEPTH_WRITE_ENABLE,
             vk::DynamicState::DEPTH_TEST_ENABLE,
+            vk::DynamicState::DEPTH_WRITE_ENABLE,
+            vk::DynamicState::DEPTH_COMPARE_OP,
+            vk::DynamicState::DEPTH_BOUNDS_TEST_ENABLE,
+            vk::DynamicState::STENCIL_TEST_ENABLE,
+            vk::DynamicState::STENCIL_OP,
+            vk::DynamicState::DEPTH_BOUNDS,
             vk::DynamicState::DEPTH_BIAS_ENABLE,
             vk::DynamicState::DEPTH_BIAS,
-            vk::DynamicState::DEPTH_COMPARE_OP,
             // blend state depends on input arguments
             vk::DynamicState::COLOR_BLEND_ENABLE_EXT,
             vk::DynamicState::COLOR_BLEND_EQUATION_EXT,
@@ -355,7 +359,7 @@ impl DeviceRHI for Device {
         let dynamic_states = if dynamic_blending {
             dynamic_states.as_slice()
         } else {
-            &dynamic_states[0..7]
+            &dynamic_states[0..11]
         };
 
         let dynamic_state =
@@ -490,11 +494,15 @@ impl DeviceRHI for Device {
             vk::DynamicState::VIEWPORT,
             vk::DynamicState::SCISSOR,
             // depth state is always dynamic
-            vk::DynamicState::DEPTH_WRITE_ENABLE,
             vk::DynamicState::DEPTH_TEST_ENABLE,
+            vk::DynamicState::DEPTH_WRITE_ENABLE,
+            vk::DynamicState::DEPTH_COMPARE_OP,
+            vk::DynamicState::DEPTH_BOUNDS_TEST_ENABLE,
+            vk::DynamicState::STENCIL_TEST_ENABLE,
+            vk::DynamicState::STENCIL_OP,
+            vk::DynamicState::DEPTH_BOUNDS,
             vk::DynamicState::DEPTH_BIAS_ENABLE,
             vk::DynamicState::DEPTH_BIAS,
-            vk::DynamicState::DEPTH_COMPARE_OP,
             // blend state depends on input arguments
             vk::DynamicState::COLOR_BLEND_ENABLE_EXT,
             vk::DynamicState::COLOR_BLEND_EQUATION_EXT,
@@ -506,7 +514,7 @@ impl DeviceRHI for Device {
         let dynamic_states = if dynamic_blending {
             dynamic_states.as_slice()
         } else {
-            &dynamic_states[0..7]
+            &dynamic_states[0..11]
         };
 
         let dynamic_state =

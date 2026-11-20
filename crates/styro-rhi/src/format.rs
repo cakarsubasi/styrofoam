@@ -816,3 +816,27 @@ impl From<vk::Format> for Format {
         }
     }
 }
+
+impl Format {
+    pub(crate) fn is_depth_format(&self) -> bool {
+        matches!(
+            self,
+            Format::D16_Unorm
+                | Format::X8_D24_Unorm_Pack32
+                | Format::D32_Sfloat
+                | Format::D16_Unorm_S8_Uint
+                | Format::D24_Unorm_S8_Uint
+                | Format::D32_Sfloat_S8_Uint
+        )
+    }
+
+    pub(crate) fn is_stencil_format(&self) -> bool {
+        matches!(
+            self,
+            Format::S8_Uint
+                | Format::D16_Unorm_S8_Uint
+                | Format::D24_Unorm_S8_Uint
+                | Format::D32_Sfloat_S8_Uint
+        )
+    }
+}

@@ -333,7 +333,7 @@ impl Default for Attachment {
             image: GpuImage::null(),
             load_op: LoadOp::Clear,
             store_op: StoreOp::Store,
-            clear_value: Clear::Color(0.0, 0.0, 0.0, 0.0),
+            clear_value: Clear::Color(0.0, 0.0, 0.0, 1.0),
         }
     }
 }

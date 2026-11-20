@@ -101,7 +101,6 @@ impl From<StoreOp> for vk::AttachmentStoreOp {
 
 impl From<Clear> for vk::ClearValue {
     fn from(value: Clear) -> Self {
-        // TODO: could use formats so we have one type of clear
         match value {
             Clear::Color(x, y, z, w) => vk::ClearValue {
                 color: vk::ClearColorValue {

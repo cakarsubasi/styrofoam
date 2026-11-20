@@ -325,14 +325,20 @@ impl ImageInfo {
     }
 }
 
-impl ImageUsage {
-    fn to_vk(&self) -> vk::ImageUsageFlags {
-        return vk::ImageUsageFlags::INPUT_ATTACHMENT
-            | vk::ImageUsageFlags::COLOR_ATTACHMENT
-            | vk::ImageUsageFlags::STORAGE
-            | vk::ImageUsageFlags::SAMPLED
-            | vk::ImageUsageFlags::TRANSFER_SRC
-            | vk::ImageUsageFlags::TRANSFER_DST;
+fn image_usage(usage: &ImageUsage, format: &Format) -> vk::ImageUsageFlags {
+    let is_depth_format = format.is_depth_format();
+    let is_stencil_format = format.is_stencil_format();
+    let attachment_format = if is_depth_format | is_stencil_format {
+        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
+    } else {
+        vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT
+    };
+    let transfer_usages = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
+
+    match usage {
+        ImageUsage::Sampled => vk::ImageUsageFlags::SAMPLED | transfer_usages,
+        ImageUsage::Storage => vk::ImageUsageFlags::STORAGE | transfer_usages,
+        ImageUsage::Attachment => attachment_format | transfer_usages,
     }
 }
 
@@ -376,7 +382,7 @@ impl Image {
                 .array_layers(description.layer_count)
                 .samples(description.sample_count())
                 .tiling(vk::ImageTiling::OPTIMAL)
-                .usage(description.usage.to_vk())
+                .usage(image_usage(&description.usage, &description.format))
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .initial_layout(layout);
 
@@ -394,6 +400,18 @@ impl Image {
             let view = if matches!(description.usage, ImageUsage::Attachment)
                 || device.descriptor_heap.is_none()
             {
+                let is_depth_attachment = description.format.is_depth_format();
+                let is_stencil_attachment = description.format.is_stencil_format();
+                let image_aspect_flags = if is_depth_attachment && is_stencil_attachment {
+                    vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+                } else if is_depth_attachment {
+                    vk::ImageAspectFlags::DEPTH
+                } else if is_stencil_attachment {
+                    vk::ImageAspectFlags::STENCIL
+                } else {
+                    vk::ImageAspectFlags::COLOR
+                };
+
                 Some(
                     device
                         .inner
@@ -403,7 +421,7 @@ impl Image {
                                 .format(description.format.into())
                                 .image(image)
                                 .subresource_range(vk::ImageSubresourceRange {
-                                    aspect_mask: vk::ImageAspectFlags::COLOR, // TODO: add multiple attachment types or try to infer the attachment type
+                                    aspect_mask: image_aspect_flags,
                                     base_mip_level: 0,
                                     level_count: description.mip_count,
                                     base_array_layer: 0,

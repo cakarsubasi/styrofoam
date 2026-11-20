@@ -136,6 +136,15 @@ impl CommandBuffer {
         if old_layout == new_layout {
             //return;
         }
+        let aspect_flags = match new_layout {
+            vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL => vk::ImageAspectFlags::DEPTH,
+            vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL => vk::ImageAspectFlags::STENCIL,
+            vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
+                vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
+            }
+            _ => vk::ImageAspectFlags::COLOR,
+        };
+
         let image_memory_barrier = [vk::ImageMemoryBarrier2::default()
             .src_stage_mask(src_stage_mask)
             .src_access_mask(src_access_mask)
@@ -146,7 +155,7 @@ impl CommandBuffer {
             .image(image)
             .subresource_range(
                 vk::ImageSubresourceRange::default()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .aspect_mask(aspect_flags)
                     .base_mip_level(0)
                     .level_count(1)
                     .base_array_layer(0)
@@ -632,6 +641,10 @@ impl CommandRHI for CommandBuffer {
                         self.set_stencil_state(vk::StencilFaceFlags::FRONT, &state.stencil_front);
                         self.set_stencil_state(vk::StencilFaceFlags::BACK, &state.stencil_back);
                     }
+                } else {
+                    self.device
+                        .inner
+                        .cmd_set_stencil_test_enable(self.inner, false);
                 }
             }
         }
@@ -729,13 +742,14 @@ impl CommandRHI for CommandBuffer {
                 self.layout_transition_queue.push(LayoutTransition {
                     image: target.image,
                     new_layout: vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
-                    src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+                    src_stage_mask: vk::PipelineStageFlags2::empty(),
                     src_access_mask: vk::AccessFlags2::empty(),
-                    dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                    dst_access_mask: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                    dst_stage_mask: vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS,
+                    dst_access_mask: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ
+                        | vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
                 });
                 vk::RenderingAttachmentInfo::default()
-                    .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
+                    .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
                     .load_op(target.load_op.into())
                     .store_op(target.store_op.into())
                     .clear_value(target.clear_value.into())
