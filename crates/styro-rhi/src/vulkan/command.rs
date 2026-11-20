@@ -234,16 +234,7 @@ impl CommandBuffer {
 
             self.device.inner.cmd_set_scissor(self.inner, 0, &scissors);
 
-            self.set_depth_stencil_state(&DepthStencilInfo {
-                depth_read: false,
-                depth_write: false,
-                depth_test: CompareOp::Always,
-                depth_bias: 0.0,
-                depth_bias_slope_factor: 0.0,
-                depth_bias_clamp: 0.0,
-                stencil_front: StencilInfo::default(),
-                stencil_back: StencilInfo::default(),
-            });
+            self.set_depth_stencil_state(None);
 
             self.set_blend_state(None);
         }
@@ -588,63 +579,45 @@ impl CommandRHI for CommandBuffer {
         }
     }
 
-    fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo) {
-        if let Some(RenderPassState {
+    fn set_depth_stencil_state(&mut self, state: Option<&DepthStencilInfo>) {
+        let Some(RenderPassState {
             depth_test,
             stencil_test,
         }) = self.render_pass_state
-        {
-            unsafe {
-                if depth_test {
-                    self.device
-                        .inner
-                        .cmd_set_depth_test_enable(self.inner, state.depth_read);
+        else {
+            return;
+        };
 
-                    self.device
-                        .inner
-                        .cmd_set_depth_write_enable(self.inner, state.depth_write);
+        let depth = state.filter(|_| depth_test);
+        let stencil = state.filter(|_| stencil_test);
 
-                    self.device
-                        .inner
-                        .cmd_set_depth_bias_enable(self.inner, true);
+        unsafe {
+            let device = &self.device.inner;
 
-                    self.device.inner.cmd_set_depth_bias(
-                        self.inner,
-                        state.depth_bias,
-                        state.depth_bias_clamp,
-                        state.depth_bias_slope_factor,
+            device.cmd_set_depth_test_enable(self.inner, depth.is_some_and(|s| s.depth_read));
+            device.cmd_set_depth_write_enable(self.inner, depth.is_some_and(|s| s.depth_write));
+            device.cmd_set_depth_bias_enable(self.inner, depth.is_some());
+            device.cmd_set_stencil_test_enable(self.inner, stencil.is_some());
+
+            if let Some(state) = depth {
+                device.cmd_set_depth_bias(
+                    self.inner,
+                    state.depth_bias,
+                    state.depth_bias_clamp,
+                    state.depth_bias_slope_factor,
+                );
+                device.cmd_set_depth_compare_op(self.inner, state.depth_test.into());
+            }
+
+            if let Some(state) = stencil {
+                if state.stencil_back == state.stencil_front {
+                    self.set_stencil_state(
+                        vk::StencilFaceFlags::FRONT_AND_BACK,
+                        &state.stencil_back,
                     );
-
-                    self.device
-                        .inner
-                        .cmd_set_depth_compare_op(self.inner, state.depth_test.into());
                 } else {
-                    self.device
-                        .inner
-                        .cmd_set_depth_test_enable(self.inner, false);
-                    self.device
-                        .inner
-                        .cmd_set_depth_bias_enable(self.inner, false);
-                }
-
-                if stencil_test {
-                    self.device
-                        .inner
-                        .cmd_set_stencil_test_enable(self.inner, true);
-
-                    if state.stencil_back == state.stencil_front {
-                        self.set_stencil_state(
-                            vk::StencilFaceFlags::FRONT_AND_BACK,
-                            &state.stencil_back,
-                        );
-                    } else {
-                        self.set_stencil_state(vk::StencilFaceFlags::FRONT, &state.stencil_front);
-                        self.set_stencil_state(vk::StencilFaceFlags::BACK, &state.stencil_back);
-                    }
-                } else {
-                    self.device
-                        .inner
-                        .cmd_set_stencil_test_enable(self.inner, false);
+                    self.set_stencil_state(vk::StencilFaceFlags::FRONT, &state.stencil_front);
+                    self.set_stencil_state(vk::StencilFaceFlags::BACK, &state.stencil_back);
                 }
             }
         }

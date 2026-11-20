@@ -1282,7 +1282,12 @@ pub trait CommandRHI {
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline);
 
     /// Dynamically set depth-stencil state
-    fn set_depth_stencil_state(&mut self, state: &DepthStencilInfo);
+    ///
+    /// Pass `None` to disable depth and stencil tests, and `Some` to enable them with the provided parameters.
+    ///
+    /// # Valid Usage:
+    /// - `self` must be in render pass scope.
+    fn set_depth_stencil_state(&mut self, state: Option<&DepthStencilInfo>);
 
     /// Dynamically set blend state
     ///
