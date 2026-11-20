@@ -349,6 +349,7 @@ impl Instance {
         let mut vk12_features = vk::PhysicalDeviceVulkan12Features::default()
             .buffer_device_address(true)
             .timeline_semaphore(true)
+            .scalar_block_layout(true)
             // descriptor indexing features
             .descriptor_indexing(true)
             .descriptor_binding_partially_bound(true)
