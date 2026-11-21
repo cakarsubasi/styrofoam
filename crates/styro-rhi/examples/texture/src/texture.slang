@@ -9,7 +9,6 @@ float4 sample_texture(uint2 id, float2 uv) {
 #else
 [[vk::binding(0, 0)]] Texture2D textures[];
 [[vk::binding(0, 2)]] SamplerState samplers[];
-[[vk::push_constant]] ConstantBuffer<PushData> push;
 float4 sample_texture(uint2 id, float2 uv) {
     return textures[NonUniformResourceIndex(id.x)].Sample(samplers[NonUniformResourceIndex(id.y)], uv);
 }
@@ -39,9 +38,7 @@ VertexOutput vertMain(uint vid: SV_VertexID) {
 [shader("fragment")]
 float4 fragMain(
     VertexOutput vert,
-#ifdef DESCRIPTOR_HEAP
     uniform PushData push
-#endif
     ) : SV_TARGET
 {
     return sample_texture(push.tex_id, vert.texture_uv);
