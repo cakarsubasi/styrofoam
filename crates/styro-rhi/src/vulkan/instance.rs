@@ -363,11 +363,9 @@ impl Instance {
         let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
             .dynamic_rendering(true)
             .synchronization2(true);
-        //let mut vk14_features = vk::PhysicalDeviceVulkan14Features::default()
-        //    .dynamic_rendering_local_read(true) // subpasses
-        //    .maintenance5(true); // pass spirv directly rather than creating a ShaderModule
-        let mut maintenance5_features =
-            vk::PhysicalDeviceMaintenance5Features::default().maintenance5(true);
+        let mut vk14_features = vk::PhysicalDeviceVulkan14Features::default()
+            .dynamic_rendering_local_read(true) // subpasses
+            .maintenance5(true); // pass spirv directly rather than creating a ShaderModule
         let mut descriptor_heap_feature = vk::PhysicalDeviceDescriptorHeapFeaturesEXT::default()
             .descriptor_heap(device_features.descriptor_heap)
             .descriptor_heap_capture_replay(false); // Nvidia 595.79 - capture replay is not supported
@@ -379,21 +377,16 @@ impl Instance {
                 .extended_dynamic_state3_color_blend_enable(device_features.dynamic_blend_state)
                 .extended_dynamic_state3_color_blend_equation(device_features.dynamic_blend_state)
                 .extended_dynamic_state3_color_write_mask(device_features.dynamic_blend_state);
-        let mut dynamic_rendering_local_read_feature =
-            vk::PhysicalDeviceDynamicRenderingLocalReadFeatures::default()
-                .dynamic_rendering_local_read(true);
 
         let mut enabled_features = vk::PhysicalDeviceFeatures2::default()
             .features(vk10_features)
             .push(&mut vk11_features)
             .push(&mut vk12_features)
             .push(&mut vk13_features)
-            .push(&mut maintenance5_features)
-            //.push(&mut vk14_features)
+            .push(&mut vk14_features)
             .push(&mut descriptor_heap_feature)
             .push(&mut shader_untyped_ptrs_feature)
-            .push(&mut extended_dynamic_state3_feature)
-            .push(&mut dynamic_rendering_local_read_feature);
+            .push(&mut extended_dynamic_state3_feature);
 
         let queue_create_infos = [
             vk::DeviceQueueCreateInfo::default()
