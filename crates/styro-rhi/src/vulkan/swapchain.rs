@@ -40,6 +40,7 @@ struct SwapchainHandle {
     device: Arc<DeviceHandles>,
     swapchain: vk::SwapchainKHR,
     swapchain_loader: khr::swapchain::Device,
+    extent: vk::Extent2D,
 }
 
 impl Drop for SwapchainHandle {
@@ -255,7 +256,7 @@ impl Swapchain {
         )?;
         self.info = *info;
         self.inner = swapchain;
-        self.recreate_resources([info.preferred_extent[0], info.preferred_extent[1], 1])
+        self.recreate_resources()
     }
 
     fn create_or_recreate_swapchain(
@@ -318,6 +319,7 @@ impl Swapchain {
             device,
             swapchain,
             swapchain_loader: swapchain_loader.clone(),
+            extent,
         })
     }
 
@@ -359,17 +361,15 @@ impl Swapchain {
             present_queue,
         };
 
-        swapchain.recreate_resources([
-            surface_caps.current_extent.width,
-            surface_caps.current_extent.height,
-            1,
-        ])?;
+        swapchain.recreate_resources()?;
 
         Ok(swapchain)
     }
 
-    fn recreate_resources(&mut self, dimensions: [u32; 3]) -> Result<(), vk::Result> {
+    fn recreate_resources(&mut self) -> Result<(), vk::Result> {
         self.destroy_resources();
+        // `current_extent` can't be used here: it is 0xFFFFFFFF on Wayland
+        let dimensions = [self.inner.extent.width, self.inner.extent.height, 1];
         unsafe {
             let device = &self.device;
             let mut heap = self.heap.write().unwrap();
@@ -424,14 +424,14 @@ impl Swapchain {
                 device.set_object_name(image.inner, &name);
             }
 
-            let acquire_semaphores = (0..self.info.size)
+            let acquire_semaphores = (0..swapchain_images.len() - 1)
                 .map(|_| {
                     device
                         .inner
                         .create_semaphore(&vk::SemaphoreCreateInfo::default(), None)
                 })
                 .collect::<VkResult<Vec<_>>>()?;
-            let submit_semaphores = (0..(self.info.size + 1))
+            let submit_semaphores = (0..swapchain_images.len())
                 .map(|_| {
                     device
                         .inner
