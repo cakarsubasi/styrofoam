@@ -20,7 +20,7 @@ use winit::{
 
 const FRAMES_IN_FLIGHT: u64 = 2;
 
-const PREFERRED_EXTENT: [u32; 2] = [1600, 900];
+const PREFERRED_EXTENT: [u32; 2] = [900, 450];
 
 struct MeshGpu {
     positions: rhi::GpuPtr,
@@ -74,6 +74,7 @@ struct Handles {
     pipeline: rhi::Pipeline,
     start: Instant,
     frame_index: u64,
+    color_images: Vec<rhi::GpuImage>,
     depth_images: Vec<rhi::GpuImage>,
     // scene
     texture: rhi::GpuImage,
@@ -193,12 +194,27 @@ impl ApplicationHandler for App {
                 )
                 .unwrap();
 
+            let color_format = surface_format.format;
+            let color_images = (0..FRAMES_IN_FLIGHT)
+                .map(|_| {
+                    device.create_image(&rhi::ImageInfo {
+                        ty: rhi::ImageType::Type2D,
+                        dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
+                        sample_count: 4,
+                        format: color_format,
+                        usage: rhi::ImageUsage::Attachment,
+                        ..Default::default()
+                    })
+                })
+                .collect();
+
             let depth_format = rhi::Format::D32_Sfloat;
             let depth_images = (0..FRAMES_IN_FLIGHT)
                 .map(|_| {
                     device.create_image(&rhi::ImageInfo {
                         ty: rhi::ImageType::Type2D,
                         dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
+                        sample_count: 4,
                         format: depth_format,
                         usage: rhi::ImageUsage::Attachment,
                         ..Default::default()
@@ -253,6 +269,7 @@ impl ApplicationHandler for App {
                     &rhi::RasterDescription {
                         color_formats: &[surface_format.format],
                         depth_format: depth_format,
+                        samples: 4,
                         cull: rhi::Cull::CW,
                         blend_state: None,
                         ..Default::default()
@@ -274,6 +291,7 @@ impl ApplicationHandler for App {
                 ubo,
                 bindless,
                 depth_images,
+                color_images,
             });
             if let Some(h) = &self.handles {
                 h.window.request_redraw();
@@ -303,6 +321,7 @@ impl ApplicationHandler for App {
                     let aspect_ratio = size.width as f32 / size.height as f32;
 
                     let command_pool = *frame_index % FRAMES_IN_FLIGHT;
+                    let color_attachment = handles.color_images[command_pool as usize];
                     let depth_buffer = handles.depth_images[command_pool as usize];
 
                     if *frame_index > FRAMES_IN_FLIGHT {
@@ -317,7 +336,9 @@ impl ApplicationHandler for App {
 
                     command_buffer.begin_rendering(&rhi::RenderingInfo {
                         color_attachments: &[rhi::Attachment {
-                            image: swapchain_image,
+                            image: color_attachment,
+                            store_op: rhi::StoreOp::DontCare,
+                            resolve: swapchain_image,
                             ..Default::default()
                         }],
                         depth_attachment: Some(rhi::Attachment {
@@ -325,6 +346,7 @@ impl ApplicationHandler for App {
                             load_op: rhi::LoadOp::Clear,
                             store_op: rhi::StoreOp::DontCare,
                             clear_value: rhi::Clear::DepthStencil(1.0, 0),
+                            ..Default::default()
                         }),
                         ..Default::default()
                     });

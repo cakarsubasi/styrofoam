@@ -699,12 +699,30 @@ impl CommandRHI for CommandBuffer {
                         dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
                     });
 
-                    vk::RenderingAttachmentInfo::default()
+                    let info = vk::RenderingAttachmentInfo::default()
                         .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
                         .load_op(target.load_op.into())
                         .store_op(target.store_op.into())
                         .clear_value(target.clear_value.into())
-                        .image_view(image_view)
+                        .image_view(image_view);
+
+                    if target.resolve.is_null() {
+                        info
+                    } else {
+                        let resolve_image = heap.get_image(target.resolve);
+                        let resolve_view = resolve_image.view;
+                        self.layout_transition_queue.push(LayoutTransition {
+                            image: target.resolve,
+                            new_layout: vk::ImageLayout::GENERAL,
+                            src_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                            src_access_mask: vk::AccessFlags2::empty(),
+                            dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                            dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                        });
+                        info.resolve_image_layout(vk::ImageLayout::GENERAL)
+                            .resolve_image_view(resolve_view.unwrap())
+                            .resolve_mode(vk::ResolveModeFlags::AVERAGE)
+                    }
                 })
                 .collect();
 

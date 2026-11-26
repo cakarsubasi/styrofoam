@@ -316,6 +316,9 @@ pub enum Clear {
 /// - If the attachment is a color attachment and `load_op` is [LoadOp::Load], then `clear_value` must be
 /// [Clear::Color]. If the attachment is a depth or stencil attachment and `load_op` is [LoadOp::Load], then
 /// `clear_value` must be [Clear::DepthStencil].
+/// - If the `resolve` attachment is not null, it must be a valid color attachment and `image` must be a color
+/// attachment created with a sample count greater than 1.
+/// - All other color and depth attachments given to a render pass must have the same sample count.
 #[derive(Debug, Clone, Copy)]
 pub struct Attachment {
     /// Attachment image resource
@@ -326,6 +329,8 @@ pub struct Attachment {
     pub store_op: StoreOp,
     /// Attachment clear value
     pub clear_value: Clear,
+    /// Resolve attachment resource
+    pub resolve: GpuImage,
 }
 impl Default for Attachment {
     fn default() -> Self {
@@ -334,6 +339,7 @@ impl Default for Attachment {
             load_op: LoadOp::Clear,
             store_op: StoreOp::Store,
             clear_value: Clear::Color(0.0, 0.0, 0.0, 1.0),
+            resolve: GpuImage::null(),
         }
     }
 }

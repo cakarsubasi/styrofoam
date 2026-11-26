@@ -303,6 +303,7 @@ impl Attachment {
             load_op: todo!(),
             store_op: todo!(),
             clear_value: todo!(),
+            ..Default::default()
         }
     }
 }
