@@ -1,7 +1,7 @@
 /// command pools, command buffers, pipeline creation, shaders
 pub mod command;
 /// Conversions from RHI types to native Vulkan types
-mod conversions;
+pub(crate) mod conversions;
 /// Debug messenger and object naming
 mod debug;
 /// Classic bindless descriptor fallback used when the descriptor heap feature is off

@@ -20,7 +20,7 @@ use winit::{
 
 const FRAMES_IN_FLIGHT: u64 = 2;
 
-const PREFERRED_EXTENT: [u32; 2] = [900, 450];
+const PREFERRED_EXTENT: [u32; 2] = [1600, 900];
 
 struct MeshGpu {
     positions: rhi::GpuPtr,
@@ -200,7 +200,7 @@ impl ApplicationHandler for App {
                     device.create_image(&rhi::ImageInfo {
                         ty: rhi::ImageType::Type2D,
                         dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
-                        sample_count: 4,
+                        sample_count: rhi::SampleCount::X4,
                         format: color_format,
                         usage: rhi::ImageUsage::Attachment,
                         ..Default::default()
@@ -214,7 +214,7 @@ impl ApplicationHandler for App {
                     device.create_image(&rhi::ImageInfo {
                         ty: rhi::ImageType::Type2D,
                         dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
-                        sample_count: 4,
+                        sample_count: rhi::SampleCount::X4,
                         format: depth_format,
                         usage: rhi::ImageUsage::Attachment,
                         ..Default::default()
@@ -269,7 +269,7 @@ impl ApplicationHandler for App {
                     &rhi::RasterDescription {
                         color_formats: &[surface_format.format],
                         depth_format: depth_format,
-                        samples: 4,
+                        samples: rhi::SampleCount::X4,
                         cull: rhi::Cull::CW,
                         blend_state: None,
                         ..Default::default()

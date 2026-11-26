@@ -405,7 +405,7 @@ impl Swapchain {
                             dimensions,
                             mip_count: 1,
                             layer_count: 1,
-                            sample_count: 1,
+                            sample_count: crate::SampleCount::X1,
                             format: self.info.format,
                             usage: ImageUsage::Attachment,
                         },

@@ -392,7 +392,7 @@ impl DeviceRHI for Device {
             .line_width(1.0);
 
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(vk::SampleCountFlags::from_raw(description.samples as u32))
+            .rasterization_samples(description.samples.into())
             .sample_shading_enable(false)
             .alpha_to_coverage_enable(description.alpha_to_coverage)
             .alpha_to_one_enable(false);
@@ -478,7 +478,9 @@ impl DeviceRHI for Device {
             Pipeline {
                 device: Arc::clone(&self.handles),
                 inner: pipelines[0],
-                ty: PipelineType::Graphics,
+                ty: PipelineType::Graphics {
+                    samples: description.samples,
+                },
             }
         }
     }
@@ -547,7 +549,7 @@ impl DeviceRHI for Device {
             .line_width(1.0);
 
         let multisample_state = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(vk::SampleCountFlags::from_raw(description.samples as u32))
+            .rasterization_samples(description.samples.into())
             .sample_shading_enable(false)
             .alpha_to_coverage_enable(description.alpha_to_coverage)
             .alpha_to_one_enable(false);
@@ -637,7 +639,9 @@ impl DeviceRHI for Device {
             Pipeline {
                 device: Arc::clone(&self.handles),
                 inner: pipelines[0],
-                ty: PipelineType::Graphics,
+                ty: PipelineType::Graphics {
+                    samples: description.samples,
+                },
             }
         }
     }

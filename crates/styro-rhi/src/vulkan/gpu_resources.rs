@@ -315,13 +315,7 @@ impl Buffer {
 
 impl ImageInfo {
     fn sample_count(&self) -> vk::SampleCountFlags {
-        match self.sample_count {
-            1 => vk::SampleCountFlags::TYPE_1,
-            2 => vk::SampleCountFlags::TYPE_2,
-            4 => vk::SampleCountFlags::TYPE_4,
-            8 => vk::SampleCountFlags::TYPE_8,
-            x => panic!("Invalid sample count {x}"),
-        }
+        self.sample_count.into()
     }
 }
 

@@ -256,3 +256,56 @@ impl TryFrom<vk::ColorSpaceKHR> for ColorSpace {
         }
     }
 }
+
+impl From<SampleCount> for vk::SampleCountFlags {
+    fn from(value: SampleCount) -> Self {
+        match value {
+            SampleCount::X1 => vk::SampleCountFlags::TYPE_1,
+            SampleCount::X2 => vk::SampleCountFlags::TYPE_2,
+            SampleCount::X4 => vk::SampleCountFlags::TYPE_4,
+            SampleCount::X8 => vk::SampleCountFlags::TYPE_8,
+        }
+    }
+}
+
+impl SampleCount {
+    /// The number of samples as an integer
+    pub fn count(self) -> u32 {
+        match self {
+            SampleCount::X1 => 1,
+            SampleCount::X2 => 2,
+            SampleCount::X4 => 4,
+            SampleCount::X8 => 8,
+        }
+    }
+}
+
+/// Error returned when an integer is not a supported sample count
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidSampleCount(pub u32);
+
+impl std::fmt::Display for InvalidSampleCount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid sample count {} (expected 1, 2, 4 or 8)", self.0)
+    }
+}
+
+impl std::error::Error for InvalidSampleCount {}
+
+macro_rules! impl_sample_count_try_from {
+    ($($t:ty),*) => {$(
+        impl TryFrom<$t> for SampleCount {
+            type Error = InvalidSampleCount;
+            fn try_from(value: $t) -> Result<Self, Self::Error> {
+                match value {
+                    1 => Ok(SampleCount::X1),
+                    2 => Ok(SampleCount::X2),
+                    4 => Ok(SampleCount::X4),
+                    8 => Ok(SampleCount::X8),
+                    x => Err(InvalidSampleCount(x as u32)),
+                }
+            }
+        }
+    )*};
+}
+impl_sample_count_try_from!(u8, u16, u32);

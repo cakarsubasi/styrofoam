@@ -11,6 +11,7 @@ mod vulkan;
 /// Window system integration
 pub mod window;
 
+pub use vulkan::conversions::InvalidSampleCount;
 pub use vulkan::command::{CommandBuffer, Pipeline};
 pub use vulkan::device::{Device, ShaderIR};
 pub use vulkan::gpu_ptr::GpuPtr;
@@ -385,6 +386,20 @@ pub enum Cull {
     NONE,
 }
 
+/// Number of samples per pixel for multisampled images
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum SampleCount {
+    /// 1 sample (no multisampling)
+    #[default]
+    X1,
+    /// 2 samples
+    X2,
+    /// 4 samples
+    X4,
+    /// 8 samples
+    X8,
+}
+
 /// Creation info for a raster based graphics pipeline
 #[derive(Debug, Clone, Copy)]
 pub struct RasterDescription<'a> {
@@ -393,7 +408,7 @@ pub struct RasterDescription<'a> {
     /// Cull mode used by the pipeline
     pub cull: Cull,
     /// Resolve samples used by the pipeline
-    pub samples: u8,
+    pub samples: SampleCount,
     /// Whether alpha to coverage is enabled
     pub alpha_to_coverage: bool,
     /// Formats for the color output attachments used by the pipeline
@@ -417,7 +432,7 @@ impl Default for RasterDescription<'_> {
         Self {
             topology: Topology::TriangleList,
             cull: Cull::CCW,
-            samples: 1,
+            samples: SampleCount::X1,
             alpha_to_coverage: false,
             depth_format: Format::Undefined,
             stencil_format: Format::Undefined,
@@ -553,7 +568,7 @@ pub struct ImageInfo {
     /// Number of layers the image has
     pub layer_count: u32,
     /// Number of samples the image has when used as a resolve attachment
-    pub sample_count: u32,
+    pub sample_count: SampleCount,
     /// Image format
     pub format: Format,
     /// Image usage
@@ -566,7 +581,7 @@ impl Default for ImageInfo {
             dimensions: [0, 0, 0],
             mip_count: 1,
             layer_count: 1,
-            sample_count: 1,
+            sample_count: SampleCount::X1,
             format: Format::Undefined,
             usage: ImageUsage::Sampled,
         }

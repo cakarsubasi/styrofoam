@@ -11,7 +11,10 @@ use super::semaphore::Semaphore;
 use crate::*;
 
 pub(crate) enum PipelineType {
-    Graphics,
+    Graphics {
+        /// Rasterization sample count the pipeline was created with
+        samples: SampleCount,
+    },
     Compute,
     //RayTracing,
     //Mesh,
@@ -20,7 +23,7 @@ pub(crate) enum PipelineType {
 impl PipelineType {
     fn bind_point(&self) -> vk::PipelineBindPoint {
         match self {
-            PipelineType::Graphics => vk::PipelineBindPoint::GRAPHICS,
+            PipelineType::Graphics { .. } => vk::PipelineBindPoint::GRAPHICS,
             PipelineType::Compute => vk::PipelineBindPoint::COMPUTE,
             //PipelineType::RayTracing => vk::PipelineBindPoint::RAY_TRACING_KHR,
             //PipelineType::Mesh => vk::PipelineBindPoint::GRAPHICS,
@@ -55,6 +58,7 @@ pub(super) struct SemaphoreInfo {
 }
 
 pub(super) struct RenderPassState {
+    samples: SampleCount,
     depth_test: bool,
     stencil_test: bool,
 }
@@ -77,6 +81,42 @@ pub struct CommandBuffer {
 
 // Common helpers
 impl CommandBuffer {
+    /// Checks that all attachments agree on a valid sample count and that resolve attachments are
+    /// single sampled. Returns the common sample count. Panics on invalid usage.
+    fn validate_attachment_samples(&self, desc: &RenderingInfo) -> SampleCount {
+        let heap = self.heap.read().unwrap();
+        let mut samples: Option<SampleCount> = None;
+
+        let attachments = desc
+            .color_attachments
+            .iter()
+            .chain(desc.depth_attachment.iter())
+            .chain(desc.stencil_attachment.iter());
+        for target in attachments {
+            let count = heap.get_image(target.image).desc.sample_count;
+            match samples {
+                None => samples = Some(count),
+                Some(expected) => assert_eq!(
+                    expected, count,
+                    "All attachments in a render pass must have the same sample count"
+                ),
+            }
+            if !target.resolve.is_null() {
+                assert!(
+                    count != SampleCount::X1,
+                    "Resolve attachments require a multisampled attachment image"
+                );
+                let resolve_count = heap.get_image(target.resolve).desc.sample_count;
+                assert_eq!(
+                    resolve_count,
+                    SampleCount::X1,
+                    "Resolve attachment images must have a sample count of 1"
+                );
+            }
+        }
+        samples.unwrap_or(SampleCount::X1)
+    }
+
     fn push_data(&mut self, data: PushData) {
         if data.is_empty() {
             return;
@@ -571,6 +611,17 @@ impl CommandRHI for CommandBuffer {
     }
 
     fn set_pipeline(&mut self, pipeline: &Self::Pipeline) {
+        if let (PipelineType::Graphics { samples }, Some(state)) =
+            (&pipeline.ty, &self.render_pass_state)
+        {
+            assert_eq!(
+                *samples,
+                state.samples,
+                "Pipeline sample count ({}) does not match the sample count of the current render pass ({})",
+                samples.count(),
+                state.samples.count()
+            );
+        }
         let bind_point = pipeline.ty.bind_point();
         unsafe {
             self.device
@@ -583,6 +634,7 @@ impl CommandRHI for CommandBuffer {
         let Some(RenderPassState {
             depth_test,
             stencil_test,
+            ..
         }) = self.render_pass_state
         else {
             return;
@@ -680,6 +732,7 @@ impl CommandRHI for CommandBuffer {
     }
 
     fn begin_rendering(&mut self, desc: &RenderingInfo) {
+        let samples = self.validate_attachment_samples(desc);
         unsafe {
             let color_attachments: Vec<_> = desc
                 .color_attachments
@@ -795,6 +848,7 @@ impl CommandRHI for CommandBuffer {
 
             // We save if we
             self.render_pass_state = Some(RenderPassState {
+                samples,
                 depth_test: desc.depth_attachment.is_some(),
                 stencil_test: desc.stencil_attachment.is_some(),
             });
