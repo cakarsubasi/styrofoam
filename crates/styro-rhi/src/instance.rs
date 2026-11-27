@@ -50,6 +50,12 @@ pub struct DeviceFeatures {
     ///
     /// On Vulkan, corresponds to `VK_EXT_mesh_shader`.
     pub mesh_shader: bool,
+    /// Most layout transitions are unnecessary. Indicates that using the `General` layout is optimal in the
+    /// vast majority of cases meaning pipeline barriers should be used over transitions. Note that images
+    /// must still be transitioned away from `Undefined` layout for one time (to initialize them).
+    /// 
+    /// On Vulkan, corresponds to `VK_KHR_unified_image_layouts`
+    pub unified_image_layouts: bool,
 }
 
 /// Parameters of a newly created device

@@ -130,10 +130,13 @@ impl Instance {
                         vk::PhysicalDeviceShaderUntypedPointersFeaturesKHR::default();
                     let mut extended_dynamic_state3_feature =
                         vk::PhysicalDeviceExtendedDynamicState3FeaturesEXT::default();
+                    let mut unified_image_layouts_feature =
+                        vk::PhysicalDeviceUnifiedImageLayoutsFeaturesKHR::default();
                     let mut features = vk::PhysicalDeviceFeatures2::default()
                         .push(&mut descriptor_heap_feature)
                         .push(&mut shader_untyped_ptrs_feature)
-                        .push(&mut extended_dynamic_state3_feature);
+                        .push(&mut extended_dynamic_state3_feature)
+                        .push(&mut unified_image_layouts_feature);
                     self.instance
                         .get_physical_device_features2(pdevice, &mut features);
 
@@ -164,6 +167,8 @@ impl Instance {
                                 .extended_dynamic_state3_color_write_mask
                                 != 0,
                         mesh_shader,
+                        unified_image_layouts: unified_image_layouts_feature.unified_image_layouts
+                            != 0,
                     };
 
                     Some(PhysicalDeviceInfo {
@@ -212,7 +217,7 @@ impl Instance {
         let app_name = c"Styro RHI";
 
         let mut extension_names = enumerate_required_windowing_extensions(windowing_system)
-            .map_or(vec![], |slice| slice.to_vec());
+            .map_or(vec![khr::surface::NAME.as_ptr()], |slice| slice.to_vec());
         extension_names.push(ext::debug_utils::NAME.as_ptr());
         extension_names.push(khr::surface_maintenance1::NAME.as_ptr());
         extension_names.push(khr::get_surface_capabilities2::NAME.as_ptr());
@@ -324,9 +329,6 @@ impl Instance {
             khr::maintenance5::NAME.as_ptr(),
             // ext::device_fault::NAME.as_ptr(), // device errors
             //khr::device_address_commands::NAME.as_ptr(), // Replaces commands taking buffers with those taking pointers
-            // Probably won't use this because of such narrow support
-            // khr::unified_image_layouts::NAME.as_ptr(), // Eliminates need for most layout transitions. Poor support outside Nvidia.
-            // ext::mesh_shader::NAME.as_ptr(), // mesh shaders, weeee
         ];
         if device_features.descriptor_heap {
             enabled_extension_names.push(ext::descriptor_heap::NAME.as_ptr()); // replace descriptor indexing with heaps
@@ -337,6 +339,9 @@ impl Instance {
         }
         if device_features.mesh_shader {
             enabled_extension_names.push(ext::mesh_shader::NAME.as_ptr());
+        }
+        if device_features.unified_image_layouts {
+            enabled_extension_names.push(khr::unified_image_layouts::NAME.as_ptr());
         }
 
         let vk10_features = vk::PhysicalDeviceFeatures::default()
