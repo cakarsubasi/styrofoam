@@ -137,7 +137,6 @@ impl Renderer {
                 device.create_image(&ImageInfo {
                     dimensions: [800, 600, 1],
                     format: Format::R8G8B8A8_Unorm,
-                    usage: styro_rhi::ImageUsage::Attachment,
                     ..Default::default()
                 })
             })

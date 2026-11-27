@@ -192,6 +192,7 @@ impl<'graph, 'frame> RenderGraph {
                 descriptor_heap: true,
                 dynamic_blend_state: true,
                 mesh_shader: true,
+                ..Default::default()
             },
             presentation: Some(window_system),
         });
