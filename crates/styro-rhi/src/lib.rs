@@ -1133,13 +1133,9 @@ pub enum Stage {
     /// Copy commands
     Copy,
     /// Multisample resolve commands
-    // TODO: currently no API to do multisample resolve directly
     Resolve,
     /// Blit commands
     Blit,
-    /// Clear commands
-    // TODO: currently, there is no clear command API at all, and I am not sure if we should have it
-    Clear,
     /// Task shader stage
     ///
     /// If it exists, happens before [Stage::MeshShader] and is unsequenced relative to other graphics pipeline
@@ -1183,10 +1179,6 @@ pub enum ImageLayout {
     ///
     /// Can be used for most tasks
     General,
-    // TODO: this might not be adequate and it might be needed to more granularly specify whether
-    // something is a color attachment, depth attachment, stencil attachment, or a depth-stencil
-    // attachment. ALthough ideally, we wouldn't deal with these at all and just set everything to General.
-    Attachment,
     /// Optimal layout for reading within a pass
     ShaderReadOnlyOptimal,
     /// Optimal layout for copying from
@@ -1195,8 +1187,6 @@ pub enum ImageLayout {
     TransferDstOptimal,
     /// Optimal layout for an input attachment
     RenderingLocalRead,
-    /// Layout as a presentation source for a surface
-    PresentSrc,
 }
 
 pub type PushData<'a> = &'a [u8];

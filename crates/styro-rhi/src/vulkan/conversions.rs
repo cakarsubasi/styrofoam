@@ -209,7 +209,6 @@ impl From<Stage> for vk::PipelineStageFlags2 {
             Stage::Copy => vk::PipelineStageFlags2::COPY,
             Stage::Resolve => vk::PipelineStageFlags2::RESOLVE,
             Stage::Blit => vk::PipelineStageFlags2::BLIT,
-            Stage::Clear => vk::PipelineStageFlags2::CLEAR,
             Stage::TaskShader => vk::PipelineStageFlags2::TASK_SHADER_EXT,
             Stage::MeshShader => vk::PipelineStageFlags2::MESH_SHADER_EXT,
         }
@@ -221,12 +220,10 @@ impl From<ImageLayout> for vk::ImageLayout {
         match value {
             ImageLayout::Undefined => vk::ImageLayout::UNDEFINED,
             ImageLayout::General => vk::ImageLayout::GENERAL,
-            ImageLayout::Attachment => vk::ImageLayout::ATTACHMENT_OPTIMAL,
             ImageLayout::ShaderReadOnlyOptimal => vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             ImageLayout::TransferSrcOptimal => vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
             ImageLayout::TransferDstOptimal => vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             ImageLayout::RenderingLocalRead => vk::ImageLayout::RENDERING_LOCAL_READ,
-            ImageLayout::PresentSrc => vk::ImageLayout::PRESENT_SRC_KHR,
         }
     }
 }
