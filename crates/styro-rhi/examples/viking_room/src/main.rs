@@ -202,7 +202,7 @@ impl ApplicationHandler for App {
                         dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
                         sample_count: rhi::SampleCount::X4,
                         format: color_format,
-                        usage: rhi::ImageUsage::Attachment,
+                        usage: rhi::ImageUsage::TransientAttachment,
                         ..Default::default()
                     })
                 })
@@ -216,7 +216,7 @@ impl ApplicationHandler for App {
                         dimensions: [PREFERRED_EXTENT[0], PREFERRED_EXTENT[1], 1],
                         sample_count: rhi::SampleCount::X4,
                         format: depth_format,
-                        usage: rhi::ImageUsage::Attachment,
+                        usage: rhi::ImageUsage::TransientAttachment,
                         ..Default::default()
                     })
                 })

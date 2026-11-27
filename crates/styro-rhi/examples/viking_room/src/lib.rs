@@ -115,7 +115,6 @@ pub fn create_texture_blocking(
     let texture = device.create_image(&rhi::ImageInfo {
         dimensions: [width, height, 1],
         format,
-        usage: rhi::ImageUsage::Sampled,
         ..Default::default()
     });
     let staging = create_buffer_with_data(device, rhi::BufferUsage::General, pixels.as_raw());

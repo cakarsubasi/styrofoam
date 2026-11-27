@@ -328,11 +328,17 @@ fn image_usage(usage: &ImageUsage, format: &Format) -> vk::ImageUsageFlags {
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT
     };
     let transfer_usages = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
+    let shader_usages = vk::ImageUsageFlags::SAMPLED
+        | vk::ImageUsageFlags::STORAGE
+        | vk::ImageUsageFlags::INPUT_ATTACHMENT;
 
     match usage {
-        ImageUsage::Sampled => vk::ImageUsageFlags::SAMPLED | transfer_usages,
-        ImageUsage::Storage => vk::ImageUsageFlags::STORAGE | transfer_usages,
-        ImageUsage::Attachment => attachment_format | transfer_usages,
+        ImageUsage::General => shader_usages | transfer_usages | attachment_format,
+        ImageUsage::TransientAttachment => {
+            attachment_format
+                | vk::ImageUsageFlags::INPUT_ATTACHMENT
+                | vk::ImageUsageFlags::TRANSIENT_ATTACHMENT
+        }
     }
 }
 
@@ -382,6 +388,11 @@ impl Image {
 
             let allocation_info = vk_mem::AllocationCreateInfo {
                 usage: vk_mem::MemoryUsage::Auto,
+                preferred_flags: if matches!(description.usage, ImageUsage::TransientAttachment) {
+                    vk::MemoryPropertyFlags::LAZILY_ALLOCATED
+                } else {
+                    vk::MemoryPropertyFlags::empty()
+                },
                 ..Default::default()
             };
 
@@ -391,9 +402,7 @@ impl Image {
                 .unwrap();
 
             // Attachments always need a view. Without descriptor heaps, basically everything needs a view.
-            let view = if matches!(description.usage, ImageUsage::Attachment)
-                || device.descriptor_heap.is_none()
-            {
+            let view = {
                 let is_depth_attachment = description.format.is_depth_format();
                 let is_stencil_attachment = description.format.is_stencil_format();
                 let image_aspect_flags = if is_depth_attachment && is_stencil_attachment {
@@ -425,10 +434,7 @@ impl Image {
                         )
                         .unwrap(),
                 )
-            } else {
-                None
             };
-
             let data = AllocatedImageData { allocation };
 
             Self {

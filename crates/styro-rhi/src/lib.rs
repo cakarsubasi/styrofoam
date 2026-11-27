@@ -11,8 +11,8 @@ mod vulkan;
 /// Window system integration
 pub mod window;
 
-pub use vulkan::conversions::InvalidSampleCount;
 pub use vulkan::command::{CommandBuffer, Pipeline};
+pub use vulkan::conversions::InvalidSampleCount;
 pub use vulkan::device::{Device, ShaderIR};
 pub use vulkan::gpu_ptr::GpuPtr;
 pub use vulkan::image::{GpuImage, GpuImageRegion};
@@ -527,14 +527,15 @@ pub struct BufferInfo {
 /// Image usage
 ///
 /// See [DeviceRHI::create_image]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum ImageUsage {
-    /// Image is suitable for sampled reads in a render pass
-    Sampled,
-    /// Image is suitable for writing as a storage image within a render pass
-    Storage,
-    /// Image is suitable as a rendering attachment
-    Attachment,
+    /// Image is suitable for any usages suitable for its format
+    #[default]
+    General,
+    /// Image is only used as a transient attachment within a render pass
+    ///
+    /// Such images cannot be used in transfer operations, cannot be sampled in shaders, and cannot be written to.
+    TransientAttachment,
 }
 
 /// Image type
@@ -583,7 +584,7 @@ impl Default for ImageInfo {
             layer_count: 1,
             sample_count: SampleCount::X1,
             format: Format::Undefined,
-            usage: ImageUsage::Sampled,
+            usage: ImageUsage::General,
         }
     }
 }

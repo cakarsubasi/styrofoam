@@ -407,7 +407,7 @@ impl Swapchain {
                             layer_count: 1,
                             sample_count: crate::SampleCount::X1,
                             format: self.info.format,
-                            usage: ImageUsage::Attachment,
+                            usage: ImageUsage::General,
                         },
                         current_layout: Cell::new(vk::ImageLayout::UNDEFINED),
                         data: ImageData::Swapchain(super::gpu_resources::SwapchainImageData {
