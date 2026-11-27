@@ -880,13 +880,21 @@ pub trait DeviceRHI {
     /// computations on the image to complete is sufficient to ensure this.
     unsafe fn destroy_image(&mut self, image: GpuImage);
 
-    /// Get bytes for an image descriptor
+    /// Get bytes for a sampled image descriptor
     ///
     /// # Valid usage
     /// - `descriptor_heap` feature must be enabled
     /// - `image` must be live
     /// - `image` must not be in the undefined layout
     fn get_image_descriptor(&self, image: GpuImage) -> ImageDescriptor;
+
+    /// Get bytes for a storage image descriptor
+    ///
+    /// # Valid usage
+    /// - `descriptor_heap` feature must be enabled
+    /// - `image` must be live
+    /// - `image` must not be in the undefined layout
+    fn get_image_descriptor_rw(&self, image: GpuImage) -> ImageDescriptor;
 
     /// Get bytes for an immutable sampler descriptor
     ///
@@ -1273,7 +1281,16 @@ pub trait CommandRHI {
     /// - If the regions are of the same image, they must not overlap
     fn copy_image(&mut self, src_image: GpuImageRegion, dst_image: GpuImageRegion);
 
+    /// Bind buffers to GPU visible descriptor heap
     ///
+    /// If the arguments are not null, they will be bound to the respective descriptor heaps on the device.
+    /// Subsequent compute and rendering commands are then able to use direct indices to the respective
+    /// heap to fetch the respective resource. The resources must be previous
+    ///
+    /// # Valid usage
+    /// - `descriptor_heap` feature must be enabled.
+    /// - if `resource_heap` is not null, it must be created with [BufferUsage::DescriptorHeap]
+    /// - if `sampler_heap` is not null, it must be created with [BufferUsage::SamplerHeap]
     fn bind_descriptor_heap(&mut self, resource_heap: Self::GpuPtr, sampler_heap: Self::GpuPtr);
 
     /// Emit a pipeline barrier

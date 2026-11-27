@@ -83,16 +83,20 @@ impl GpuResources {
         }
     }
 
-    pub(super) fn write_image_descriptor(&self, image: GpuImage, addr: &mut ImageDescriptor) {
+    pub(super) fn write_image_descriptor(
+        &self,
+        image: GpuImage,
+        ty: vk::DescriptorType,
+        addr: &mut ImageDescriptor,
+    ) {
         let image = self.get_image(image);
 
         let device = &self.device;
         let descriptor_heap = &device.descriptor_heap;
         let _props = &device.descriptor_heap_props;
         unsafe {
-            let resource = [vk::ResourceDescriptorInfoEXT::default()
-                .ty(vk::DescriptorType::SAMPLED_IMAGE)
-                .data(vk::ResourceDescriptorDataEXT {
+            let resource = [vk::ResourceDescriptorInfoEXT::default().ty(ty).data(
+                vk::ResourceDescriptorDataEXT {
                     p_image: &vk::ImageDescriptorInfoEXT {
                         p_view: &vk::ImageViewCreateInfo::default()
                             .view_type(image.desc.ty.into())
@@ -108,7 +112,8 @@ impl GpuResources {
                         layout: vk::ImageLayout::GENERAL,
                         ..Default::default()
                     },
-                })];
+                },
+            )];
             let descriptor = [vk::HostAddressRangeEXT::default()
                 .address(bytemuck::cast_slice_mut(&mut addr.inner))];
             descriptor_heap

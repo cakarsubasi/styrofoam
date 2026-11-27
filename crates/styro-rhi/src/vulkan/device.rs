@@ -649,7 +649,14 @@ impl DeviceRHI for Device {
     fn get_image_descriptor(&self, image: GpuImage) -> ImageDescriptor {
         let heap = self.heap.read().unwrap();
         let mut descriptor = ImageDescriptor { inner: [0u64; 4] };
-        heap.write_image_descriptor(image, &mut descriptor);
+        heap.write_image_descriptor(image, vk::DescriptorType::SAMPLED_IMAGE, &mut descriptor);
+        descriptor
+    }
+
+    fn get_image_descriptor_rw(&self, image: GpuImage) -> ImageDescriptor {
+        let heap = self.heap.read().unwrap();
+        let mut descriptor = ImageDescriptor { inner: [0u64; 4] };
+        heap.write_image_descriptor(image, vk::DescriptorType::STORAGE_IMAGE, &mut descriptor);
         descriptor
     }
 
@@ -660,11 +667,7 @@ impl DeviceRHI for Device {
         descriptor
     }
 
-    fn write_sampled_image_descriptor(
-        &mut self,
-        index: usize,
-        image: GpuImage,
-    ) {
+    fn write_sampled_image_descriptor(&mut self, index: usize, image: GpuImage) {
         let device = self.device();
         let heap = self.heap.read().unwrap();
         if let Some(ref descriptors) = self.handles.descriptor_indexing {
