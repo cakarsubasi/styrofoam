@@ -72,7 +72,7 @@ pub struct CommandBuffer {
     // Subpass state
     pub(super) wait: Vec<SemaphoreInfo>,
     pub(super) signal: Vec<SemaphoreInfo>,
-    pub(super) layout_transition_queue: Vec<LayoutTransition>,
+    pub(super) layout_transition_queue: Vec<vk::ImageMemoryBarrier2<'static>>,
     // Presentation state
     pub(super) presentation: Option<GpuImage>,
     // Render pass state
@@ -163,85 +163,19 @@ impl CommandBuffer {
         }
     }
 
-    pub(super) unsafe fn transition_image_layout(
+    /// Records all the barriers in a single pipeline barrier.
+    pub(super) unsafe fn multiple_layout_transition(
         &self,
-        image: vk::Image,
-        old_layout: vk::ImageLayout,
-        new_layout: vk::ImageLayout,
-        src_stage_mask: vk::PipelineStageFlags2,
-        src_access_mask: vk::AccessFlags2,
-        dst_stage_mask: vk::PipelineStageFlags2,
-        dst_access_mask: vk::AccessFlags2,
+        barriers: &[vk::ImageMemoryBarrier2<'_>],
     ) {
-        if old_layout == new_layout {
-            //return;
+        if barriers.is_empty() {
+            return;
         }
-        let aspect_flags = match new_layout {
-            vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL => vk::ImageAspectFlags::DEPTH,
-            vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL => vk::ImageAspectFlags::STENCIL,
-            vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL => {
-                vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL
-            }
-            _ => vk::ImageAspectFlags::COLOR,
-        };
-
-        let image_memory_barrier = [vk::ImageMemoryBarrier2::default()
-            .src_stage_mask(src_stage_mask)
-            .src_access_mask(src_access_mask)
-            .dst_stage_mask(dst_stage_mask)
-            .dst_access_mask(dst_access_mask)
-            .old_layout(old_layout)
-            .new_layout(new_layout)
-            .image(image)
-            .subresource_range(
-                vk::ImageSubresourceRange::default()
-                    .aspect_mask(aspect_flags)
-                    .base_mip_level(0)
-                    .level_count(1)
-                    .base_array_layer(0)
-                    .layer_count(1),
-            )];
-
-        let dependency_info =
-            vk::DependencyInfo::default().image_memory_barriers(&image_memory_barrier);
+        let dependency_info = vk::DependencyInfo::default().image_memory_barriers(barriers);
         unsafe {
             self.device
                 .inner
                 .cmd_pipeline_barrier2(self.inner, &dependency_info);
-        }
-    }
-
-    pub(super) unsafe fn multiple_layout_transition(&self, transitions: &[LayoutTransition]) {
-        // TODO: array the transitions
-        for transition in transitions {
-            let LayoutTransition {
-                image,
-                new_layout,
-                src_stage_mask,
-                src_access_mask,
-                dst_stage_mask,
-                dst_access_mask,
-            } = transition;
-
-            let (image, old_layout) = {
-                let guard = self.heap.read().unwrap();
-                let image = guard.get_image(*image);
-                let old_layout = image.current_layout.get();
-                image.current_layout.set(*new_layout);
-                (image.inner, old_layout)
-            };
-
-            unsafe {
-                self.transition_image_layout(
-                    image,
-                    old_layout,
-                    *new_layout,
-                    *src_stage_mask,
-                    *src_access_mask,
-                    *dst_stage_mask,
-                    *dst_access_mask,
-                );
-            }
         }
     }
 
@@ -583,14 +517,30 @@ impl CommandRHI for CommandBuffer {
             _ => vkaf::empty(),
         };
 
-        self.layout_transition_queue.push(LayoutTransition {
-            image,
-            new_layout: layout.into(),
-            src_stage_mask: before.into(),
-            src_access_mask: src_access_mask,
-            dst_stage_mask: after.into(),
-            dst_access_mask: dst_access_mask,
-        });
+        let heap = self.heap.read().unwrap();
+        let aspect = {
+            let format = heap.get_image(image).desc.format;
+            let mut aspect = vk::ImageAspectFlags::empty();
+            if format.is_depth_format() {
+                aspect |= vk::ImageAspectFlags::DEPTH;
+            }
+            if format.is_stencil_format() {
+                aspect |= vk::ImageAspectFlags::STENCIL;
+            }
+            if aspect.is_empty() {
+                vk::ImageAspectFlags::COLOR
+            } else {
+                aspect
+            }
+        };
+        self.layout_transition_queue.push(
+            layout_barrier(&heap, image, aspect, layout.into())
+                .src_stage_mask(before.into())
+                .src_access_mask(src_access_mask)
+                .dst_stage_mask(after.into())
+                .dst_access_mask(dst_access_mask),
+        );
+        drop(heap);
         self.flush_layout_transitions();
     }
 
@@ -743,14 +693,18 @@ impl CommandRHI for CommandBuffer {
                     let image = heap.get_image(target.image);
                     let image_view = image.view.unwrap();
 
-                    self.layout_transition_queue.push(LayoutTransition {
-                        image: target.image,
-                        new_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                        src_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        src_access_mask: vk::AccessFlags2::empty(),
-                        dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                    });
+                    self.layout_transition_queue.push(
+                        layout_barrier(
+                            &heap,
+                            target.image,
+                            vk::ImageAspectFlags::COLOR,
+                            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                        )
+                        .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                        .src_access_mask(vk::AccessFlags2::empty())
+                        .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                        .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE),
+                    );
 
                     let info = vk::RenderingAttachmentInfo::default()
                         .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
@@ -764,14 +718,18 @@ impl CommandRHI for CommandBuffer {
                     } else {
                         let resolve_image = heap.get_image(target.resolve);
                         let resolve_view = resolve_image.view;
-                        self.layout_transition_queue.push(LayoutTransition {
-                            image: target.resolve,
-                            new_layout: vk::ImageLayout::GENERAL,
-                            src_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                            src_access_mask: vk::AccessFlags2::empty(),
-                            dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                            dst_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                        });
+                        self.layout_transition_queue.push(
+                            layout_barrier(
+                                &heap,
+                                target.resolve,
+                                vk::ImageAspectFlags::COLOR,
+                                vk::ImageLayout::GENERAL,
+                            )
+                            .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                            .src_access_mask(vk::AccessFlags2::empty())
+                            .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                            .dst_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE),
+                        );
                         info.resolve_image_layout(vk::ImageLayout::GENERAL)
                             .resolve_image_view(resolve_view.unwrap())
                             .resolve_mode(vk::ResolveModeFlags::AVERAGE)
@@ -779,47 +737,101 @@ impl CommandRHI for CommandBuffer {
                 })
                 .collect();
 
-            let depth_attachment = if let Some(ref target) = desc.depth_attachment {
-                let heap = self.heap.read().unwrap();
-                let image = heap.get_image(target.image);
-
-                self.layout_transition_queue.push(LayoutTransition {
-                    image: target.image,
-                    new_layout: vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
-                    src_stage_mask: vk::PipelineStageFlags2::empty(),
-                    src_access_mask: vk::AccessFlags2::empty(),
-                    dst_stage_mask: vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS,
-                    dst_access_mask: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ
-                        | vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                });
-                vk::RenderingAttachmentInfo::default()
-                    .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-                    .load_op(target.load_op.into())
-                    .store_op(target.store_op.into())
-                    .clear_value(target.clear_value.into())
-                    .image_view(image.view.unwrap())
-            } else {
-                vk::RenderingAttachmentInfo::default()
+            // A combined depth/stencil image used for both attachments needs a single transition
+            // covering both aspects and a layout that is the same for both attachment infos.
+            let combined_depth_stencil = match (&desc.depth_attachment, &desc.stencil_attachment) {
+                (Some(depth), Some(stencil)) => depth.image.handle == stencil.image.handle,
+                _ => false,
             };
-            let stencil_attachment = if let Some(ref target) = desc.stencil_attachment {
+
+            let (depth_attachment, stencil_attachment) = if combined_depth_stencil {
+                let depth = desc.depth_attachment.as_ref().unwrap();
+                let stencil = desc.stencil_attachment.as_ref().unwrap();
                 let heap = self.heap.read().unwrap();
-                let image = heap.get_image(target.image);
-                self.layout_transition_queue.push(LayoutTransition {
-                    image: target.image,
-                    new_layout: vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL,
-                    src_stage_mask: vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
-                    src_access_mask: vk::AccessFlags2::empty(),
-                    dst_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                    dst_access_mask: vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
-                });
-                vk::RenderingAttachmentInfo::default()
-                    .image_layout(vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL)
-                    .load_op(target.load_op.into())
-                    .store_op(target.store_op.into())
-                    .clear_value(target.clear_value.into())
-                    .image_view(image.view.unwrap())
+                let view = heap.get_image(depth.image).view.unwrap();
+
+                self.layout_transition_queue.push(
+                    layout_barrier(
+                        &heap,
+                        depth.image,
+                        vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+                        vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                    )
+                    .src_stage_mask(vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS)
+                    .src_access_mask(vk::AccessFlags2::empty())
+                    .dst_stage_mask(
+                        vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS
+                            | vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS,
+                    )
+                    .dst_access_mask(
+                        vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ
+                            | vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                    ),
+                );
+
+                let attachment = |target: &Attachment| {
+                    vk::RenderingAttachmentInfo::default()
+                        .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                        .load_op(target.load_op.into())
+                        .store_op(target.store_op.into())
+                        .clear_value(target.clear_value.into())
+                        .image_view(view)
+                };
+                (attachment(depth), attachment(stencil))
             } else {
-                vk::RenderingAttachmentInfo::default()
+                let depth_attachment = if let Some(ref target) = desc.depth_attachment {
+                    let heap = self.heap.read().unwrap();
+                    let image = heap.get_image(target.image);
+
+                    self.layout_transition_queue.push(
+                        layout_barrier(
+                            &heap,
+                            target.image,
+                            vk::ImageAspectFlags::DEPTH,
+                            vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
+                        )
+                        .src_stage_mask(vk::PipelineStageFlags2::empty())
+                        .src_access_mask(vk::AccessFlags2::empty())
+                        .dst_stage_mask(vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS)
+                        .dst_access_mask(
+                            vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_READ
+                                | vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                        ),
+                    );
+                    vk::RenderingAttachmentInfo::default()
+                        .image_layout(vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL)
+                        .load_op(target.load_op.into())
+                        .store_op(target.store_op.into())
+                        .clear_value(target.clear_value.into())
+                        .image_view(image.view.unwrap())
+                } else {
+                    vk::RenderingAttachmentInfo::default()
+                };
+                let stencil_attachment = if let Some(ref target) = desc.stencil_attachment {
+                    let heap = self.heap.read().unwrap();
+                    let image = heap.get_image(target.image);
+                    self.layout_transition_queue.push(
+                        layout_barrier(
+                            &heap,
+                            target.image,
+                            vk::ImageAspectFlags::STENCIL,
+                            vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL,
+                        )
+                        .src_stage_mask(vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS)
+                        .src_access_mask(vk::AccessFlags2::empty())
+                        .dst_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                        .dst_access_mask(vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE),
+                    );
+                    vk::RenderingAttachmentInfo::default()
+                        .image_layout(vk::ImageLayout::STENCIL_ATTACHMENT_OPTIMAL)
+                        .load_op(target.load_op.into())
+                        .store_op(target.store_op.into())
+                        .clear_value(target.clear_value.into())
+                        .image_view(image.view.unwrap())
+                } else {
+                    vk::RenderingAttachmentInfo::default()
+                };
+                (depth_attachment, stencil_attachment)
             };
 
             let extent = if let Some(target) = desc.color_attachments.first() {
@@ -1010,11 +1022,25 @@ impl SwapchainCommandRHI for CommandBuffer {
     }
 }
 
-pub(super) struct LayoutTransition {
-    pub image: GpuImage,
-    pub new_layout: vk::ImageLayout,
-    pub src_stage_mask: vk::PipelineStageFlags2,
-    pub src_access_mask: vk::AccessFlags2,
-    pub dst_stage_mask: vk::PipelineStageFlags2,
-    pub dst_access_mask: vk::AccessFlags2,
+// TODO: different mip levels and array layers
+pub(super) fn layout_barrier(
+    heap: &GpuResources,
+    image: GpuImage,
+    aspect: vk::ImageAspectFlags,
+    new_layout: vk::ImageLayout,
+) -> vk::ImageMemoryBarrier2<'static> {
+    let image = heap.get_image(image);
+    let old_layout = image.current_layout.replace(new_layout);
+    vk::ImageMemoryBarrier2::default()
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .image(image.inner)
+        .subresource_range(
+            vk::ImageSubresourceRange::default()
+                .aspect_mask(aspect)
+                .base_mip_level(0)
+                .level_count(1)
+                .base_array_layer(0)
+                .layer_count(1),
+        )
 }

@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use ash::vk;
 
 use super::command::CommandBuffer;
-use super::command::LayoutTransition;
+use super::command::layout_barrier;
 use super::device::DeviceHandles;
 use super::gpu_resources::GpuResources;
 
@@ -288,14 +288,20 @@ impl QueueRHI for Queue {
         for cb in command_buffers {
             if let Some(swapchain_image) = cb.presentation {
                 unsafe {
-                    cb.multiple_layout_transition(&[LayoutTransition {
-                        image: swapchain_image,
-                        new_layout: vk::ImageLayout::PRESENT_SRC_KHR,
-                        src_stage_mask: vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-                        src_access_mask: vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
-                        dst_stage_mask: vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
-                        dst_access_mask: vk::AccessFlags2::empty(),
-                    }]);
+                    let barrier = {
+                        let heap = cb.heap.read().unwrap();
+                        layout_barrier(
+                            &heap,
+                            swapchain_image,
+                            vk::ImageAspectFlags::COLOR,
+                            vk::ImageLayout::PRESENT_SRC_KHR,
+                        )
+                        .src_stage_mask(vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT)
+                        .src_access_mask(vk::AccessFlags2::COLOR_ATTACHMENT_WRITE)
+                        .dst_stage_mask(vk::PipelineStageFlags2::BOTTOM_OF_PIPE)
+                        .dst_access_mask(vk::AccessFlags2::empty())
+                    };
+                    cb.multiple_layout_transition(&[barrier]);
                 }
             }
         }
