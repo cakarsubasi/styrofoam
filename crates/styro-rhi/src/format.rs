@@ -2,7 +2,7 @@ use ash::vk;
 
 // This enum is so bloated that it gets its own file
 #[allow(non_camel_case_types)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, enum_iterator::Sequence)]
 pub enum Format {
     Undefined = 0,
     R4G4_Unorm_Pack8 = 1,

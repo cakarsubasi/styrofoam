@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::CStr;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
@@ -32,12 +33,12 @@ pub(super) struct DeviceHandles {
     pub pdevice: vk::PhysicalDevice,
     pub allocator: ManuallyDrop<vk_mem::Allocator>,
     pub limits: vk::PhysicalDeviceLimits,
+    pub format_features: HashMap<Format, vk::FormatFeatureFlags2>,
     // Extensions
     pub debug_utils: ext::debug_utils::Device,
     pub descriptor_heap: Option<ext::descriptor_heap::Device>,
     pub descriptor_heap_props: Option<DescriptorHeapProps>,
     pub extended_dynamic_state3: Option<ext::extended_dynamic_state3::Device>,
-    // pub device_address_commands: khr::device_address_commands::Device, // Poor support right now
     pub descriptor_indexing: Option<DescriptorIndexingData>,
     pub mesh_shader: Option<ext::mesh_shader::Device>,
 }
@@ -129,11 +130,18 @@ impl Device {
                 None
             };
 
+            let mut format_features = HashMap::new();
+            for format in enum_iterator::all::<Format>() {
+                let properties = get_format_features(&instance.instance, pdevice, format.into());
+                format_features.insert(format, properties);
+            }
+
             let handles = Arc::new(DeviceHandles {
                 instance,
                 inner: device,
                 pdevice,
                 limits: properties.limits,
+                format_features,
                 allocator: ManuallyDrop::new(allocator),
                 debug_utils: debug_utils_loader,
                 descriptor_heap: descriptor_heap_loader,
@@ -816,5 +824,19 @@ impl SwapchainDeviceRHI for Device {
                 })
                 .collect()
         }
+    }
+}
+
+pub(crate) fn get_format_features(
+    instance: &ash::Instance,
+    pdevice: vk::PhysicalDevice,
+    format: vk::Format,
+) -> vk::FormatFeatureFlags2 {
+    unsafe {
+        let mut properties3 = vk::FormatProperties3::default();
+        let mut properties2 = vk::FormatProperties2::default().push(&mut properties3);
+        instance.get_physical_device_format_properties2(pdevice, format, &mut properties2);
+        let features = properties3.optimal_tiling_features;
+        features
     }
 }

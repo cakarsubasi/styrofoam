@@ -324,18 +324,43 @@ impl ImageInfo {
     }
 }
 
-fn image_usage(usage: &ImageUsage, format: &Format) -> vk::ImageUsageFlags {
-    let is_depth_format = format.is_depth_format();
-    let is_stencil_format = format.is_stencil_format();
+fn image_usage(
+    usage: &ImageUsage,
+    format: &Format,
+    features: vk::FormatFeatureFlags2,
+) -> vk::ImageUsageFlags {
+    let supports_depth_stencil =
+        features.contains(vk::FormatFeatureFlags2::DEPTH_STENCIL_ATTACHMENT);
+    let supports_color_attachment = features.contains(vk::FormatFeatureFlags2::COLOR_ATTACHMENT);
+    let supports_shader_read = features.contains(vk::FormatFeatureFlags2::SAMPLED_IMAGE);
+    let supports_shader_write = features.contains(vk::FormatFeatureFlags2::STORAGE_IMAGE);
+    let supports_transfer_to = features.contains(vk::FormatFeatureFlags2::TRANSFER_DST);
+    let supports_transfer_from = features.contains(vk::FormatFeatureFlags2::TRANSFER_SRC);
+
+    let is_depth_format = format.is_depth_format() && supports_depth_stencil;
+    let is_stencil_format = format.is_stencil_format() && supports_depth_stencil;
+    let is_color_format = !(is_depth_format || is_stencil_format) && supports_color_attachment;
     let attachment_format = if is_depth_format | is_stencil_format {
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
-    } else {
+    } else if is_color_format {
         vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::INPUT_ATTACHMENT
+    } else {
+        vk::ImageUsageFlags::empty()
     };
-    let transfer_usages = vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST;
-    let shader_usages = vk::ImageUsageFlags::SAMPLED
-        | vk::ImageUsageFlags::STORAGE
-        | vk::ImageUsageFlags::INPUT_ATTACHMENT;
+    let mut transfer_usages = vk::ImageUsageFlags::empty();
+    if supports_transfer_to {
+        transfer_usages |= vk::ImageUsageFlags::TRANSFER_DST;
+    }
+    if supports_transfer_from {
+        transfer_usages |= vk::ImageUsageFlags::TRANSFER_SRC;
+    }
+    let mut shader_usages = vk::ImageUsageFlags::empty();
+    if supports_shader_read {
+        shader_usages |= vk::ImageUsageFlags::SAMPLED;
+    }
+    if supports_shader_write {
+        shader_usages |= vk::ImageUsageFlags::STORAGE;
+    }
 
     match usage {
         ImageUsage::General => shader_usages | transfer_usages | attachment_format,
@@ -375,6 +400,14 @@ impl Image {
     pub fn new(device: Arc<DeviceHandles>, description: &ImageInfo) -> Self {
         unsafe {
             let layout = vk::ImageLayout::UNDEFINED;
+            let features = device.format_features.get(&description.format).unwrap();
+            let usage = image_usage(&description.usage, &description.format, *features);
+            if usage.is_empty() {
+                panic!(
+                    "Image format {:?} is not supported by the implementation.",
+                    description.format
+                );
+            }
             let image_info = vk::ImageCreateInfo::default()
                 .image_type(description.ty.into())
                 .format(description.format.into())
@@ -387,7 +420,7 @@ impl Image {
                 .array_layers(description.layer_count)
                 .samples(description.sample_count())
                 .tiling(vk::ImageTiling::OPTIMAL)
-                .usage(image_usage(&description.usage, &description.format))
+                .usage(usage)
                 .sharing_mode(vk::SharingMode::EXCLUSIVE)
                 .initial_layout(layout);
 
